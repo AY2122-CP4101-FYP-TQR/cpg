@@ -29,6 +29,7 @@ import de.fraunhofer.aisec.cpg.frontends.LanguageFrontend;
 import de.fraunhofer.aisec.cpg.frontends.cpp.CXXLanguageFrontend;
 import de.fraunhofer.aisec.cpg.frontends.golang.GoLanguageFrontend;
 import de.fraunhofer.aisec.cpg.frontends.java.JavaLanguageFrontend;
+import de.fraunhofer.aisec.cpg.frontends.powershell.PowerShellLanguageFrontend;
 import de.fraunhofer.aisec.cpg.frontends.python.PythonLanguageFrontend;
 import de.fraunhofer.aisec.cpg.frontends.typescript.TypeScriptLanguageFrontend;
 import de.fraunhofer.aisec.cpg.graph.declarations.RecordDeclaration;
@@ -69,6 +70,7 @@ public class TypeManager {
     PYTHON,
     TYPESCRIPT,
     LLVM_IR,
+    POWERSHELL,
     UNKNOWN
   }
 
@@ -535,6 +537,8 @@ public class TypeManager {
       return Language.PYTHON;
     } else if (frontend instanceof TypeScriptLanguageFrontend) {
       return Language.TYPESCRIPT;
+    } else if (frontend instanceof PowerShellLanguageFrontend) {
+      return Language.POWERSHELL;
     } else if (frontend != null && clazz != null && clazz.isAssignableFrom(frontend.getClass())) {
       return Language.LLVM_IR;
     }
