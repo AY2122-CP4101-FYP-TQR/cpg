@@ -55,7 +55,7 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
             "DoUntilStatementAst" -> return handleDoUntilStmt(node)
             "ForEachStatementAst" -> return handleForEachStmt(node)
             "StatementBlockAst" -> return handleStatementBlock(node)
-            
+
             "CommandAst" -> return handleExpressionStmt(node)
             "CommandExpressionAst" -> return handleExpressionStmt(node)
         }
