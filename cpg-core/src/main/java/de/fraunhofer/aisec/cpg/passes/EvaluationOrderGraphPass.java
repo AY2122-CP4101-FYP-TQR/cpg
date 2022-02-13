@@ -77,12 +77,12 @@ public class EvaluationOrderGraphPass extends Pass {
   protected final Map<Class<? extends Node>, CallableInterface<? extends Node>> map =
       new HashMap<>();
 
-  private List<Node> currentEOG = new ArrayList<>();
-  private final EnumMap<Properties, Object> currentProperties = new EnumMap<>(Properties.class);
+  protected List<Node> currentEOG = new ArrayList<>();
+  protected final EnumMap<Properties, Object> currentProperties = new EnumMap<>(Properties.class);
 
   // Some nodes will have no incoming nor outgoing edges but still need to be associated to the next
   // eog relevant node.
-  private final List<Node> intermediateNodes = new ArrayList<>();
+  protected final List<Node> intermediateNodes = new ArrayList<>();
 
   public EvaluationOrderGraphPass() {
     map.put(TranslationUnitDeclaration.class, this::handleTranslationUnitDeclaration);
@@ -137,7 +137,7 @@ public class EvaluationOrderGraphPass extends Pass {
    * @param node - That lies on the reachable or unreachable path
    * @return true if the node can bea reached from a function declaration
    */
-  private static boolean reachableFromValidEOGRoot(@NonNull Node node) {
+  protected static boolean reachableFromValidEOGRoot(@NonNull Node node) {
     Set<Node> passedBy = new HashSet<>();
     List<Node> workList = new ArrayList<>(node.getPrevEOG());
     while (!workList.isEmpty()) {
@@ -164,6 +164,12 @@ public class EvaluationOrderGraphPass extends Pass {
 
   @Override
   public void accept(TranslationResult result) {
+    if (lang == null) {
+      Util.errorWithFileLocation(result, log, "Could not create EOG: language frontend is null");
+
+      return;
+    }
+
     for (TranslationUnitDeclaration tu : result.getTranslationUnits()) {
       createEOG(tu);
       removeUnreachableEOGEdges(tu);
@@ -230,7 +236,7 @@ public class EvaluationOrderGraphPass extends Pass {
    * Removes EOG edges by first building the negative set of nodes that cannot be visited and then
    * remove there outgoing edges.In contrast to truncateLooseEdges this also removes cycles.
    */
-  private void removeUnreachableEOGEdges(@NonNull TranslationUnitDeclaration tu) {
+  protected void removeUnreachableEOGEdges(@NonNull TranslationUnitDeclaration tu) {
     List<Node> eognodes =
         SubgraphWalker.flattenAST(tu).stream()
             .filter(node -> !(node.getPrevEOG().isEmpty() && node.getNextEOG().isEmpty()))
@@ -261,7 +267,7 @@ public class EvaluationOrderGraphPass extends Pass {
     }
   }
 
-  private void handleTranslationUnitDeclaration(@NonNull Node node) {
+  protected void handleTranslationUnitDeclaration(@NonNull Node node) {
     TranslationUnitDeclaration declaration = (TranslationUnitDeclaration) node;
 
     handleStatementHolder((StatementHolder) node);
@@ -273,7 +279,7 @@ public class EvaluationOrderGraphPass extends Pass {
     lang.clearProcessed();
   }
 
-  private void handleNamespaceDeclaration(@NonNull Node node) {
+  protected void handleNamespaceDeclaration(@NonNull Node node) {
     NamespaceDeclaration declaration = (NamespaceDeclaration) node;
 
     handleStatementHolder(declaration);
@@ -285,14 +291,14 @@ public class EvaluationOrderGraphPass extends Pass {
     lang.clearProcessed();
   }
 
-  private void handleVariableDeclaration(@NonNull Node node) {
+  protected void handleVariableDeclaration(@NonNull Node node) {
     Declaration declaration = (Declaration) node;
     // analyze the initializer
     createEOG(((VariableDeclaration) declaration).getInitializer());
     pushToEOG(declaration);
   }
 
-  private void handleRecordDeclaration(@NonNull Node node) {
+  protected void handleRecordDeclaration(@NonNull Node node) {
     RecordDeclaration declaration = (RecordDeclaration) node;
     lang.getScopeManager().enterScope(declaration);
 
@@ -314,7 +320,7 @@ public class EvaluationOrderGraphPass extends Pass {
     lang.getScopeManager().leaveScope(declaration);
   }
 
-  private void handleStatementHolder(StatementHolder statementHolder) {
+  protected void handleStatementHolder(StatementHolder statementHolder) {
     // separate code into static and non-static parts as they are executed in different moments
     // although they can be
     // be placed in the same enclosing declaration.
@@ -349,11 +355,23 @@ public class EvaluationOrderGraphPass extends Pass {
     currentEOG.clear();
   }
 
-  private void handleFunctionDeclaration(@NonNull Node node) {
+  protected void handleFunctionDeclaration(@NonNull Node node) {
     FunctionDeclaration funcDecl = (FunctionDeclaration) node;
 
     // reset EOG
     this.currentEOG.clear();
+
+    var needToLeaveRecord = false;
+
+    if (node instanceof MethodDeclaration
+        && ((MethodDeclaration) node).getRecordDeclaration() != null
+        && ((MethodDeclaration) node).getRecordDeclaration()
+            != lang.getScopeManager().getCurrentRecord()) {
+      // This is a method declaration outside of the AST of the record, as its possible in
+      // languages, such as C++. Therefore we need to enter the record scope as well
+      lang.getScopeManager().enterScope(((MethodDeclaration) node).getRecordDeclaration());
+      needToLeaveRecord = true;
+    }
 
     lang.getScopeManager().enterScope(funcDecl);
     // push the function declaration
@@ -363,14 +381,36 @@ public class EvaluationOrderGraphPass extends Pass {
     if (funcDecl.hasBody()) {
       createEOG(funcDecl.getBody());
     }
-    FunctionScope scope = ((FunctionScope) lang.getScopeManager().getCurrentScope());
+
+    var currentScope = lang.getScopeManager().getCurrentScope();
+
+    if (!(currentScope instanceof FunctionScope)) {
+      Util.errorWithFileLocation(
+          node,
+          log,
+          "Scope of function declaration is not a function scope. EOG of function might be incorrect.");
+      // try to recover at least a little bit
+      lang.getScopeManager().leaveScope(funcDecl);
+
+      this.currentEOG.clear();
+      return;
+    }
+
+    FunctionScope scope = (FunctionScope) currentScope;
     List<Node> uncaughtEOGThrows =
         scope.getCatchesOrRelays().values().stream()
             .flatMap(Collection::stream)
             .collect(Collectors.toList());
     // Connect uncaught throws to block node
     addMultipleIncomingEOGEdges(uncaughtEOGThrows, funcDecl.getBody());
+
     lang.getScopeManager().leaveScope(funcDecl);
+
+    if (node instanceof MethodDeclaration
+        && ((MethodDeclaration) node).getRecordDeclaration() != null
+        && needToLeaveRecord) {
+      lang.getScopeManager().leaveScope(((MethodDeclaration) node).getRecordDeclaration());
+    }
 
     // Set default argument evaluation nodes
     List<Node> funcDeclNextEOG = funcDecl.getNextEOG();
@@ -399,7 +439,7 @@ public class EvaluationOrderGraphPass extends Pass {
     this.currentEOG.clear();
   }
 
-  public void createEOG(@Nullable Node node) {
+  protected void createEOG(@Nullable Node node) {
     if (node == null) {
       return;
     }
@@ -418,11 +458,11 @@ public class EvaluationOrderGraphPass extends Pass {
     }
   }
 
-  private void handleDefault(@NonNull Node node) {
+  protected void handleDefault(@NonNull Node node) {
     pushToEOG(node);
   }
 
-  private void handleCallExpression(@NonNull Node node) {
+  protected void handleCallExpression(@NonNull Node node) {
     CallExpression callExpression = (CallExpression) node;
 
     // Todo add call as throwexpression to outer scope of call can throw (which is trivial to find
@@ -442,13 +482,13 @@ public class EvaluationOrderGraphPass extends Pass {
     pushToEOG(callExpression);
   }
 
-  private void handleMemberExpression(@NonNull Node node) {
+  protected void handleMemberExpression(@NonNull Node node) {
     MemberExpression memberExpression = (MemberExpression) node;
     createEOG(memberExpression.getBase());
     pushToEOG(memberExpression);
   }
 
-  private void handleArraySubscriptionExpression(@NonNull Node node) {
+  protected void handleArraySubscriptionExpression(@NonNull Node node) {
     ArraySubscriptionExpression arraySubs = (ArraySubscriptionExpression) node;
 
     // Connect according to evaluation order, first the array reference, then the contained index.
@@ -458,7 +498,7 @@ public class EvaluationOrderGraphPass extends Pass {
     pushToEOG(arraySubs);
   }
 
-  private void handleArrayCreationExpression(@NonNull Node node) {
+  protected void handleArrayCreationExpression(@NonNull Node node) {
     ArrayCreationExpression arrayCreate = (ArrayCreationExpression) node;
 
     for (Expression dimension : arrayCreate.getDimensions()) {
@@ -471,7 +511,7 @@ public class EvaluationOrderGraphPass extends Pass {
     pushToEOG(arrayCreate);
   }
 
-  private void handleDeclarationStatement(@NonNull Node node) {
+  protected void handleDeclarationStatement(@NonNull Node node) {
     DeclarationStatement declarationStatement = (DeclarationStatement) node;
     // loop through declarations
     for (Declaration declaration : declarationStatement.getDeclarations()) {
@@ -496,7 +536,7 @@ public class EvaluationOrderGraphPass extends Pass {
     pushToEOG(declarationStatement);
   }
 
-  private void handleReturnStatement(@NonNull Node node) {
+  protected void handleReturnStatement(@NonNull Node node) {
     ReturnStatement returnStatement = (ReturnStatement) node;
     // analyze the return value
     createEOG(returnStatement.getReturnValue());
@@ -508,7 +548,7 @@ public class EvaluationOrderGraphPass extends Pass {
     currentEOG.clear();
   }
 
-  private void handleBinaryOperator(@NonNull Node node) {
+  protected void handleBinaryOperator(@NonNull Node node) {
     BinaryOperator binOp = (BinaryOperator) node;
     createEOG(binOp.getLhs());
 
@@ -528,7 +568,7 @@ public class EvaluationOrderGraphPass extends Pass {
     pushToEOG(binOp);
   }
 
-  private void handleCompoundStatement(@NonNull Node node) {
+  protected void handleCompoundStatement(@NonNull Node node) {
     CompoundStatement compoundStatement = (CompoundStatement) node;
 
     // not all language handle compound statements as scoping blocks, so we need to avoid creating
@@ -547,7 +587,7 @@ public class EvaluationOrderGraphPass extends Pass {
     pushToEOG(compoundStatement);
   }
 
-  private void handleUnaryOperator(@NonNull Node node) {
+  protected void handleUnaryOperator(@NonNull Node node) {
     UnaryOperator unaryOperator = (UnaryOperator) node;
     Expression input = unaryOperator.getInput();
     createEOG(input);
@@ -595,12 +635,12 @@ public class EvaluationOrderGraphPass extends Pass {
     }
   }
 
-  private void handleCompoundStatementExpression(@NonNull Node node) {
+  protected void handleCompoundStatementExpression(@NonNull Node node) {
     createEOG(((CompoundStatementExpression) node).getStatement());
     pushToEOG(node);
   }
 
-  private void handleAssertStatement(@NonNull Node node) {
+  protected void handleAssertStatement(@NonNull Node node) {
     AssertStatement ifs = (AssertStatement) node;
     createEOG(ifs.getCondition());
     List<Node> openConditionEOGs = new ArrayList<>(currentEOG);
@@ -609,7 +649,7 @@ public class EvaluationOrderGraphPass extends Pass {
     pushToEOG(node);
   }
 
-  private void handleTryStatement(@NonNull Node node) {
+  protected void handleTryStatement(@NonNull Node node) {
     TryStatement tryStatement = (TryStatement) node;
     lang.getScopeManager().enterScope(tryStatement);
     TryScope tryScope = (TryScope) lang.getScopeManager().getCurrentScope();
@@ -688,30 +728,30 @@ public class EvaluationOrderGraphPass extends Pass {
     pushToEOG(tryStatement);
   }
 
-  private void handleContinueStatement(@NonNull Node node) {
+  protected void handleContinueStatement(@NonNull Node node) {
     pushToEOG(node);
     lang.getScopeManager().addContinueStatement((ContinueStatement) node);
     currentEOG.clear();
   }
 
-  private void handleDeleteExpression(@NonNull Node node) {
+  protected void handleDeleteExpression(@NonNull Node node) {
     createEOG(((DeleteExpression) node).getOperand());
     pushToEOG(node);
   }
 
-  private void handleBreakStatement(@NonNull Node node) {
+  protected void handleBreakStatement(@NonNull Node node) {
     pushToEOG(node);
     lang.getScopeManager().addBreakStatement((BreakStatement) node);
     currentEOG.clear();
   }
 
-  private void handleLabelStatement(@NonNull Node node) {
+  protected void handleLabelStatement(@NonNull Node node) {
     LabelStatement labelStatement = (LabelStatement) node;
     lang.getScopeManager().addLabelStatement(labelStatement);
     createEOG(labelStatement.getSubStatement());
   }
 
-  private void handleGotoStatement(@NonNull Node node) {
+  protected void handleGotoStatement(@NonNull Node node) {
     GotoStatement gotoStatement = (GotoStatement) node;
     pushToEOG(gotoStatement);
     if (gotoStatement.getTargetLabel() != null) {
@@ -721,25 +761,25 @@ public class EvaluationOrderGraphPass extends Pass {
     currentEOG.clear();
   }
 
-  private void handleCaseStatement(@NonNull Node node) {
+  protected void handleCaseStatement(@NonNull Node node) {
     createEOG(((CaseStatement) node).getCaseExpression());
     pushToEOG(node);
   }
 
-  private void handleNewExpression(@NonNull Node node) {
+  protected void handleNewExpression(@NonNull Node node) {
     NewExpression newStmt = (NewExpression) node;
     createEOG(newStmt.getInitializer());
 
     pushToEOG(node);
   }
 
-  private void handleCastExpression(@NonNull Node node) {
+  protected void handleCastExpression(@NonNull Node node) {
     CastExpression castExpr = (CastExpression) node;
     createEOG(castExpr.getExpression());
     pushToEOG(castExpr);
   }
 
-  private void handleExpressionList(@NonNull Node node) {
+  protected void handleExpressionList(@NonNull Node node) {
     ExpressionList exprList = (ExpressionList) node;
     for (Statement expr : exprList.getExpressions()) {
       createEOG(expr);
@@ -748,7 +788,7 @@ public class EvaluationOrderGraphPass extends Pass {
     pushToEOG(exprList);
   }
 
-  private void handleInitializerListExpression(@NonNull Node node) {
+  protected void handleInitializerListExpression(@NonNull Node node) {
     InitializerListExpression initList = (InitializerListExpression) node;
 
     // first the arguments
@@ -759,7 +799,7 @@ public class EvaluationOrderGraphPass extends Pass {
     pushToEOG(initList);
   }
 
-  private void handleConstructExpression(@NonNull Node node) {
+  protected void handleConstructExpression(@NonNull Node node) {
     ConstructExpression constructExpr = (ConstructExpression) node;
     // first the arguments
     for (Expression arg : constructExpr.getArguments()) {
@@ -820,7 +860,7 @@ public class EvaluationOrderGraphPass extends Pass {
    * @param loopStatement the loop statement
    * @param loopScope the loop scope
    */
-  public void exitLoop(@NonNull Statement loopStatement, @NonNull LoopScope loopScope) {
+  protected void exitLoop(@NonNull Statement loopStatement, @NonNull LoopScope loopScope) {
     // Breaks are connected to the NEXT EOG node and therefore temporarily stored after the loop
     // context is destroyed
     this.currentEOG.addAll(loopScope.getBreakStatements());
@@ -847,7 +887,7 @@ public class EvaluationOrderGraphPass extends Pass {
   /**
    * Connects current EOG nodes to the previously saved loop start to mimic control flow of loops
    */
-  public void connectCurrentToLoopStart() {
+  protected void connectCurrentToLoopStart() {
     if (lang == null) {
       // Avoid null checks in every if/else branch
       LOGGER.warn(
@@ -874,26 +914,27 @@ public class EvaluationOrderGraphPass extends Pass {
    * @param prev the previous node
    * @param next the next node
    */
-  public void addEOGEdge(Node prev, Node next) {
+  protected void addEOGEdge(Node prev, Node next) {
     PropertyEdge<Node> propertyEdge = new PropertyEdge<>(prev, next);
     propertyEdge.addProperties(this.currentProperties);
     propertyEdge.addProperty(Properties.INDEX, prev.getNextEOG().size());
+    propertyEdge.addProperty(Properties.UNREACHABLE, false);
     prev.addNextEOG(propertyEdge);
     next.addPrevEOG(propertyEdge);
   }
 
-  public void addMultipleIncomingEOGEdges(List<Node> prevs, Node next) {
+  protected void addMultipleIncomingEOGEdges(List<Node> prevs, Node next) {
     prevs.forEach(prev -> addEOGEdge(prev, next));
   }
 
-  private void handleSynchronizedStatement(@NonNull Node node) {
+  protected void handleSynchronizedStatement(@NonNull Node node) {
     SynchronizedStatement synch = (SynchronizedStatement) node;
     createEOG(synch.getExpression());
     pushToEOG(synch);
     createEOG(synch.getBlockStatement());
   }
 
-  private void handleConditionalExpression(@NonNull Node node) {
+  protected void handleConditionalExpression(@NonNull Node node) {
     ConditionalExpression conditionalExpression = (ConditionalExpression) node;
     List<Node> openBranchNodes = new ArrayList<>();
     createEOG(conditionalExpression.getCondition());
@@ -909,7 +950,7 @@ public class EvaluationOrderGraphPass extends Pass {
     setCurrentEOGs(openBranchNodes);
   }
 
-  private void handleDoStatement(@NonNull Node node) {
+  protected void handleDoStatement(@NonNull Node node) {
     DoStatement doStatement = (DoStatement) node;
     lang.getScopeManager().enterScope(doStatement);
 
@@ -929,7 +970,7 @@ public class EvaluationOrderGraphPass extends Pass {
     }
   }
 
-  private void handleForEachStatement(@NonNull Node node) {
+  protected void handleForEachStatement(@NonNull Node node) {
     ForEachStatement forEachStatement = (ForEachStatement) node;
     lang.getScopeManager().enterScope(forEachStatement);
 
@@ -955,7 +996,7 @@ public class EvaluationOrderGraphPass extends Pass {
     currentEOG.addAll(tmpEOGNodes);
   }
 
-  private void handleForStatement(@NonNull Node node) {
+  protected void handleForStatement(@NonNull Node node) {
 
     ForStatement forStatement = (ForStatement) node;
     lang.getScopeManager().enterScope(forStatement);
@@ -987,7 +1028,7 @@ public class EvaluationOrderGraphPass extends Pass {
     currentEOG.addAll(tmpEOGNodes);
   }
 
-  private void handleIfStatement(@NonNull Node node) {
+  protected void handleIfStatement(@NonNull Node node) {
     IfStatement ifStatement = (IfStatement) node;
     List<Node> openBranchNodes = new ArrayList<>();
     lang.getScopeManager().enterScopeIfExists(ifStatement);
@@ -1018,7 +1059,7 @@ public class EvaluationOrderGraphPass extends Pass {
     setCurrentEOGs(openBranchNodes);
   }
 
-  private void handleSwitchStatement(@NonNull Node node) {
+  protected void handleSwitchStatement(@NonNull Node node) {
     SwitchStatement switchStatement = (SwitchStatement) node;
     lang.getScopeManager().enterScopeIfExists(switchStatement);
 
@@ -1059,7 +1100,7 @@ public class EvaluationOrderGraphPass extends Pass {
     }
   }
 
-  private void handleWhileStatement(@NonNull Node node) {
+  protected void handleWhileStatement(@NonNull Node node) {
     WhileStatement whileStatement = (WhileStatement) node;
     lang.getScopeManager().enterScope(whileStatement);
 
