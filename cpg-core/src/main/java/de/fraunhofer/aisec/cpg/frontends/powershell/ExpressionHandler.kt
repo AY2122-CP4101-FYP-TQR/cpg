@@ -28,12 +28,10 @@ package de.fraunhofer.aisec.cpg.frontends.powershell
 import de.fraunhofer.aisec.cpg.ExperimentalPowerShell
 import de.fraunhofer.aisec.cpg.frontends.Handler
 import de.fraunhofer.aisec.cpg.graph.NodeBuilder
+import de.fraunhofer.aisec.cpg.graph.declarations.FunctionDeclaration
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.*
 import de.fraunhofer.aisec.cpg.graph.types.TypeParser
 import de.fraunhofer.aisec.cpg.graph.types.UnknownType
-import de.fraunhofer.aisec.cpg.sarif.PhysicalLocation
-import de.fraunhofer.aisec.cpg.sarif.Region
-import java.io.File
 
 @ExperimentalPowerShell
 public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
@@ -42,73 +40,113 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
         map.put(PowerShellNode::class.java, ::handleNode)
     }
 
-    // May contain many duplicate AST types of statement/declaration handler as parents are passed
-    // in here to do work
-    // on their children that are grouped together as siblings and the children AST are not useful
-    // in determining
-    // which function needs to be called.
     private fun handleNode(node: PowerShellNode): Expression {
         println("EXPRESSION:  ${node.type}")
         when (node.type) {
-            "AssignmentStatementAst" -> return handleAssignExpression(node)
-            "CommandExpressionAst" -> return handleCommandExpression(node)
+            // Wrapper AST classes
+            "PipelineAst" -> return handlePipelineExpression(node)
+            "CommandExpressionAst" -> return handleWrapperExpression(node)
+            "ParenExpressionAst" -> return handleWrapperExpression(node)
+            "StatementBlockAst" -> return handleWrapperExpression(node)
+
+            // AST Parents passed in to handle children
             "CommandAst" -> return handleCommand(node)
             "CommandParameterAst" -> return handleDeclaredReferenceExpression(node)
-            "ConstantExpressionAst" -> return handleLiteralExpression(node)
-            "StringConstantExpressionAst" -> return handleLiteralExpression(node)
 
-            // There is no variable Expression object (only variableStmt) hence if it comes here
-            // then it is for declaredReferenceExpression.
+            // PS allows certain statements to be expressions
+            "SwitchStatementAst" -> return handleSwitchExpr(node)
+
+            // actual "expression"
             "VariableExpressionAst" -> return handleDeclaredReferenceExpression(node)
+            "AssignmentStatementAst" -> return handleBinaryExpression(node) // same as binary
             "BinaryExpressionAst" -> return handleBinaryExpression(node)
             "UnaryExpressionAst" -> return handleUnaryBinaryExpression(node)
+            "ConstantExpressionAst" -> return handleLiteralExpression(node)
+            "StringConstantExpressionAst" -> return handleLiteralExpression(node)
+            "FunctionDefinitionAst" -> return handleDeclaration(node)
+            "ArrayExpressionAst" -> return handleArrayExpression(node)
+            "ScriptBlockExpressionAst" -> return handleWrapperExpression(node)
+            "ScriptBlockAst" -> return handleScriptBlock(node)
+            "NamedBlockAst" -> return handlePipelineExpression(node)
         }
+        log.warn("EXPRESSION: Not handled situations: ${node.type}")
         return Expression()
     }
 
+    // Do not see a difference when attempting to add another TUD
+    // Current solution is to treat it as a different namespace
+    fun handleScriptBlock(node: PowerShellNode): Expression {
+        // exp.addDeclaration(this.lang.tudHandler.handle(node.children!![0]))
+        val compoundExprStmt = NodeBuilder.newCompoundStatementExpression(node.code!!)
+
+        // val script = NodeBuilder.newTranslationUnitDeclaration("script", "script code")
+        // compoundExprStmt.addDeclaration(script)
+        val ns = NodeBuilder.newNamespaceDeclaration(node.code!!, node.code)
+        // script.addDeclaration(ns)
+        this.lang.scopeManager.enterScope(ns)
+        val test = this.handle(node.children!![0])
+        ns.addStatement(test)
+        this.lang.scopeManager.leaveScope(ns)
+        // this.lang.scopeManager.addDeclaration(script)
+        this.lang.scopeManager.addDeclaration(ns)
+        // script.addDeclaration(ns)
+        return compoundExprStmt
+    }
+
+    private fun handlePipelineExpression(node: PowerShellNode): Expression {
+        return if (node.children!!.size == 1) {
+            this.handle(node.children!![0])
+        } else {
+            val compoundExprStmt = NodeBuilder.newCompoundStatementExpression(node.code!!)
+            compoundExprStmt.statement = this.lang.statementHandler.handleGenericBlock(node)
+            return compoundExprStmt
+        }
+    }
+
+    private fun handleDeclaration(node: PowerShellNode): Expression {
+        val exp = NodeBuilder.newExpression(node.code)
+        exp.addDeclaration(this.lang.declarationHandler.handle(node))
+        return exp
+    }
     /**
      * handles an ast representing an expression when the expression is used as the first command of
      * a pipeline. appears to just be some wrapper ast? not sure what other purpose this serves but
      * for now it just serves as another wrapper to other expressionNodes
      */
-    private fun handleCommandExpression(node: PowerShellNode): Expression {
-        // constantExpressionAst - The ast representing an expression when the expression is used as
-        // the first command of a pipeline.
-        if (node.children!!.count() != 1) println("hi more than 1 children pls fix")
+    private fun handleWrapperExpression(node: PowerShellNode): Expression {
+        // 1. CommandExpressionAst - The ast representing an expression when the expression is used
+        // as the first command of a pipeline.
+        // 2. PipelineAst
+        // Have only seen it with 1 child but this assumption may not hold.
+        if (node.children!!.count() != 1) {
+            log.error("FIX ME: CommandExpressionAst has more than 1 child")
+        }
         return this.handle(node.children!![0])
     }
 
     private fun handleLiteralExpression(node: PowerShellNode): Expression {
-        var typeStr =
+        val typeStr =
             when (node.type) {
                 "ConstantExpressionAst" -> "int"
                 "StringConstantExpressionAst" -> "str"
                 // should not fall into this? if it does, add them
                 else -> "unknown"
             }
-        if (typeStr == "unknown") println("type is actually ${node.type} pls fix")
+        if (typeStr == "unknown")
+            log.warn("Unidentified type found for literal: type is actually ${node.type}")
 
         val type = TypeParser.createFrom(typeStr, false)
         val value = node.code
 
         val lit = NodeBuilder.newLiteral(value, type, node.code)
         lit.name = node.code ?: node.name ?: ""
-        lit.location =
-            PhysicalLocation(
-                File(node.location.file).toURI(),
-                Region(
-                    node.location.startLine,
-                    node.location.startCol,
-                    node.location.endLine,
-                    node.location.endCol
-                )
-            )
+        lit.location = this.lang.getLocationFromRawNode(node)
         return lit
     }
 
-    fun handleBinaryExpression(node: PowerShellNode): Expression {
+    private fun handleBinaryExpression(node: PowerShellNode): Expression {
         if (node.operator == null) println("binaryExpression has no operator?")
-        var operatorCode = node.operator!!
+        val operatorCode = node.operator!!
         val binaryOperator = NodeBuilder.newBinaryOperator(operatorCode, node.code)
         val lhs = handle(node.children!![0])
         val rhs = handle(node.children!![1])
@@ -119,12 +157,12 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
         return binaryOperator
     }
 
-    // Only have ++ and -- according to several websites
+    // Only have ++ and --
     private fun handleUnaryBinaryExpression(node: PowerShellNode): Expression {
         val token = node.unaryType!!
-        var operator: String = ""
-        var postFix: Boolean = false
-        var preFix: Boolean = false
+        var operator = ""
+        var postFix = false
+        var preFix = false
         when (token) {
             "PostfixPlusPlus" -> {
                 operator = "++"
@@ -141,7 +179,7 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
                 postFix = false
                 preFix = true
             }
-            "PrefixPlusPlus" -> {
+            "PrefixMinusMinus" -> {
                 operator = "--"
                 postFix = false
                 preFix = true
@@ -153,18 +191,6 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
         return unaryOperator
     }
 
-    // still AssignmentStatementAst
-    private fun handleAssignExpression(node: PowerShellNode): Expression {
-        val binaryOperator = NodeBuilder.newBinaryOperator("=", node.code)
-        val lhs = handle(node.children!![0])
-        val rhs = handle(node.children!![1])
-
-        binaryOperator.lhs = lhs
-        binaryOperator.rhs = rhs
-        binaryOperator.type = lhs.type ?: rhs.type
-        return binaryOperator
-    }
-
     private fun handleDeclaredReferenceExpression(node: PowerShellNode): Expression {
         val name = this.lang.getIdentifierName(node)
         val type = node.codeType?.let { TypeParser.createFrom(it, false) }
@@ -174,53 +200,35 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
                 type ?: UnknownType.getUnknownType(),
                 this.lang.getCodeFromRawNode(node)
             )
-        ref.location =
-            PhysicalLocation(
-                File(node.location.file).toURI(),
-                Region(
-                    node.location.startLine,
-                    node.location.startCol,
-                    node.location.endLine,
-                    node.location.endCol
-                )
-            )
+        ref.location = this.lang.getLocationFromRawNode(node)
         return ref
     }
 
-    private fun handleCommand(node: PowerShellNode): Expression {
-        // Check if this is a function call
-        val functionCallAst = node.children!![0]
-        val functionCall =
-            NodeBuilder.newCallExpression(
-                functionCallAst.code,
-                functionCallAst.code,
-                node.code,
-                false
-            )
-        val functionDef =
-            this.lang.scopeManager.resolveFunctionStopScopeTraversalOnDefinition(functionCall)
-        if (functionDef.size == 1) {
-            // Found that it is a function call since that function definition is found.
-            return handleFunctionCallExpression(node)
-        } else if (functionDef.isEmpty()
-        ) { // No function declaration found, must create your own then link to it.
-            // TODO find a way to differentiate between function call and calling some library
-            // function (cmdlet)
-            // For now assume if cannot find function call, is some cmdlet
-            // return as some FC
-            return handleFunctionCallExpression(node)
-        } else {
-            // Can add other things as CommandAst sounds like it will also be used to represent
-            // other stuff
-            println("FIX ME: handleCommand DO NOT have ANY function def found")
-            println("Warning: Unable to identify the function called, parameters may be incorrect.")
+    private fun handleArrayExpression(node: PowerShellNode): Expression {
+        val expr = NodeBuilder.newInitializerListExpression(node.code)
+        expr.type = node.codeType?.let { TypeParser.createFrom(it, false) }
+
+        val retList: MutableList<PowerShellNode> = emptyList<PowerShellNode>().toMutableList()
+        val items = this.lang.getAllLastChildren(node, retList)
+        val list: MutableList<Expression> = emptyList<Expression>().toMutableList()
+        for (item in items) {
+            list.add(this.handle(item))
         }
-        return Expression()
+        expr.setInitializers(list)
+        return expr
     }
 
-    private fun handleFunctionCallExpression(node: PowerShellNode): Expression {
-        // First child is always the function call itself.
+    /**
+     * Handles all AST type of "CommandAst" Examples include function calls, cmdlet (instances of
+     * .NET classes)
+     */
+    // Type here is CommandAst
+    private fun handleCommand(node: PowerShellNode): Expression {
+        // First child is always the function call itself
         val functionCallAst = node.children!![0]
+        if (functionCallAst.type != "StringConstantExpressionAst") {
+            log.error("First child in handleCommand not the function called")
+        }
         val functionCall =
             NodeBuilder.newCallExpression(
                 functionCallAst.code,
@@ -229,37 +237,70 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
                 false
             )
         // Finding the function definition to get the function params' index number
-        val paramsMap: MutableMap<String, Int> = emptyMap<String, Int>().toMutableMap()
-        val functionDef =
+        val functionDefList =
             this.lang.scopeManager.resolveFunctionStopScopeTraversalOnDefinition(functionCall)
-        if (functionDef.size == 1) {
+        // Does not mean much as it could simply be the case of multiple class with same function
+        // declaration
+        // and since the ^ function searches ALL parent scope for that definition, many instances
+        // can be returned.
+        // Nonetheless, the FIRST occurrence should be the correct definition. Warning logged just
+        // in case.
+        if (functionDefList.size > 1)
+            log.warn(
+                "function definition list has more than 1 definition found, may not be the correct function def"
+            )
+        // sCRIPTBLOCKEXPRESSIONAST DO STH DIFF
+        val params = node.children!!.subList(1, (node.children!!.size))
+        if (params.isNotEmpty()) processCommandArgs(functionCall, functionDefList, params)
+
+        return functionCall
+    }
+
+    private fun processCommandArgs(
+        functionCall: CallExpression,
+        functionDef: List<FunctionDeclaration>,
+        paramsList: List<PowerShellNode>
+    ) {
+        val paramsMap: MutableMap<String, Int> = emptyMap<String, Int>().toMutableMap()
+        val isDeclared: Boolean = functionDef.isNotEmpty()
+
+        if (isDeclared) {
             val functionCalled = functionDef[0]
             for (parameter in functionCalled.parameters) {
                 paramsMap[parameter.name] = parameter.argumentIndex
             }
+        }
+        // can have mixed so need to handle them together
 
-            // Possible improvement link it directly to the other FC.
-            val numOfChildren = node.children!!.size
-            var counter = 1
-            // child with odd index are just placeholders to show which param it is supposed to be
-            // child with even index are the ones with values passed in as args.
-            while (counter + 1 < numOfChildren) {
-                val paramValue = this.handle(node.children!![counter + 1])
-                val paramName = node.children!![counter].code!!.replace("-", "$")
-                paramValue.argumentIndex = paramsMap[paramName]!!
+        var doneList = emptyList<Int>().toMutableList()
+        for ((index, param) in paramsList.withIndex()) {
+            if (index in doneList) continue
+            if (param.type == "CommandParameterAst") {
+                val paramName = param.code!!.replace("-", "$")
+                val paramValue = this.handle(paramsList[index + 1])
+                doneList.add(index + 1)
+                paramValue.argumentIndex = paramsMap[paramName] ?: index
                 functionCall.addArgument(paramValue)
-                counter += 2
-            }
-        } else {
-            // cmdlet or cannot find the declaration
-            log.warn("Did not find a declaration for \"${functionCall.name}\"")
-            var params = node.children!!.subList(1, (node.children!!.size))
-            for ((counter, param) in params.withIndex()) {
-                val paramValue = NodeBuilder.newExpression(param.code)
-                paramValue.argumentIndex = counter
-                functionCall.addArgument(paramValue)
+            } else {
+                // The middle AST structures do not contain information that are essential
+                // Plus they can intertwine between ArrayLiteralAst and ParenExpressionAst,
+                // making it extremely complex to handle.
+                // We are only interested in the last nodes (those without children)
+                val retList: MutableList<PowerShellNode> =
+                    emptyList<PowerShellNode>().toMutableList()
+                val params = this.lang.getAllLastChildren(param, retList)
+                for ((id, p) in params.withIndex()) {
+                    val paramValue = this.handle(p)
+                    paramValue.argumentIndex = id
+                    functionCall.addArgument(paramValue)
+                }
             }
         }
-        return functionCall
+    }
+
+    private fun handleSwitchExpr(node: PowerShellNode): Expression {
+        val expr = NodeBuilder.newCompoundStatementExpression(node.code!!)
+        expr.statement = this.lang.statementHandler.handle(node)
+        return expr
     }
 }

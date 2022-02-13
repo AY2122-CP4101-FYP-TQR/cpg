@@ -1,9 +1,17 @@
 function testFunc {
     param (
-        $test, $param2
+        $value,
+        $test,
+        $test2
     )
-    $test = 5
-    #Write-Host($a)
+    Write-Host $value, $test, $test2
 }
-$hi = 4
-testFunc -test $hi -param2 10
+
+$no = "asd"
+$why = "why"
+
+testFunc ("hi", $no, $why)
+testFunc ("hi"), $no, $why
+testFunc ("test", $no), $why
+testFunc "special" -test2 $why -test $no
+testFunc

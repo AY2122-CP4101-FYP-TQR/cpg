@@ -46,20 +46,25 @@ class TranslationalUnitDeclarationHandler(lang: PowerShellLanguageFrontend) :
             )
         this.lang.scopeManager.resetToGlobal(tu)
 
-        // do I create the namespace declaration here?
-        // cpp and python creates one
+        // For now, use filename as its namespace
+        val namespace = node.location.file.split("/").last().split(".").first()
+        val nsd = NodeBuilder.newNamespaceDeclaration(namespace, "")
+        tu.addDeclaration(nsd)
+        this.lang.scopeManager.enterScope(nsd)
 
         for (childNode in node.children ?: emptyList()) {
             if (childNode.type.endsWith("StatementAst") || (childNode.type == "PipelineAst")) {
                 val statement = this.lang.statementHandler.handle(childNode)
-                tu.addStatement(statement)
+                nsd.addStatement(statement)
             }
             // If not statement, everything else is a declaration - pass to declaration to handle
             else {
                 val decl = this.lang.declarationHandler.handle(childNode)
-                tu.addDeclaration(decl)
+                nsd.addDeclaration(decl)
             }
         }
+        this.lang.scopeManager.leaveScope(nsd)
+        this.lang.scopeManager.addDeclaration(nsd)
         return tu
     }
 }

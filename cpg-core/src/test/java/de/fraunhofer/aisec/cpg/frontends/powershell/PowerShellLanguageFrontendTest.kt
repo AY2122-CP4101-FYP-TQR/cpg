@@ -41,7 +41,7 @@ class PowerShellLanguageFrontendTest {
     @Test
     fun testVariable() {
         // val file = File("src/test/resources/powershell/variableDecl.ps1")
-        val file = File("src/test/resources/powershell/cmdletUsage.ps1")
+        val file = File("src/test/resources/powershell/variableDecl.ps1")
         val tu =
             TestUtils.analyzeAndGetFirstTU(List.of(file), file.parentFile.toPath(), true) {
                 it.registerLanguage(

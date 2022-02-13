@@ -32,9 +32,6 @@ import de.fraunhofer.aisec.cpg.graph.statements.*
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Expression
 import de.fraunhofer.aisec.cpg.graph.types.TypeParser
 import de.fraunhofer.aisec.cpg.graph.types.UnknownType
-import de.fraunhofer.aisec.cpg.sarif.PhysicalLocation
-import de.fraunhofer.aisec.cpg.sarif.Region
-import java.io.File
 
 @ExperimentalPowerShell
 class StatementHandler(lang: PowerShellLanguageFrontend) :
@@ -50,26 +47,39 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
             "NamedBlockAst" -> return handleGenericBlock(node)
             "PipelineAst" -> return handlePipelineStmt(node)
             "AssignmentStatementAst" -> return handleAssignmentStmt(node)
+            "SwitchStatementAst" -> return handleSwitchStmt(node)
             "IfStatementAst" -> return handleIfStmt(node)
             "ForStatementAst" -> return handleForStmt(node)
             "WhileStatementAst" -> return handleWhileStmt(node)
             "DoWhileStatementAst" -> return handleDoWhileStmt(node)
             "DoUntilStatementAst" -> return handleDoUntilStmt(node)
+            "ForEachStatementAst" -> return handleForEachStmt(node)
             "StatementBlockAst" -> return handleStatementBlock(node)
-
-            // "CommandAst" -> return handleCommandStmt(node)
+            
             "CommandAst" -> return handleExpressionStmt(node)
+            "CommandExpressionAst" -> return handleExpressionStmt(node)
         }
+        log.warn("STATEMENT: Not handled situations: ${node.type}")
         return Statement()
     }
 
     private fun handlePipelineStmt(node: PowerShellNode): Statement {
-        // may need to do for loop here through children
-        return handleExpressionStmt(node.children!![0])
+        return if (node.children!!.size == 1) {
+            handleExpressionStmt(node.children!![0])
+        } else {
+            val compoundStatement = NodeBuilder.newCompoundStatement(node.code)
+            this.lang.scopeManager.enterScope(compoundStatement)
+            for (child in node.children!!) {
+                val stmt = this.handleNode(child)
+                compoundStatement.addStatement(stmt)
+            }
+            this.lang.scopeManager.leaveScope(compoundStatement)
+            compoundStatement
+        }
     }
 
-    private fun handleGenericBlock(node: PowerShellNode): CompoundStatement {
-        // namedBlockAst and pipelineAst falls under this generic category
+    fun handleGenericBlock(node: PowerShellNode): CompoundStatement {
+        // namedBlockAst falls under this generic category
         val compoundStatement = NodeBuilder.newCompoundStatement(node.code)
         this.lang.scopeManager.enterScope(compoundStatement)
         for (child in node.children!!) {
@@ -81,42 +91,55 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
     }
 
     // AssignmentStatementAst
-    // Need to care for everything? 4 cases of inside/not inside class/function
-    // FOR NOW: assignment if new; declaredreference if old
+    // 4 cases of inside/not inside class/function
+    // Current implementation: Declaration if new; Declared reference if old
     private fun handleAssignmentStmt(node: PowerShellNode): Statement {
         if (node.children!!.size != 2)
             print("FIX ME:  - more than 2 children in handleAssignmentStmt.")
-        // Current work on single variable declaration.
-        // parent passed in as the lhs, rhs are siblings instead of children relationship
-        val lhs = node.children!![0] // VariableExpressionAst
-        val lhsName = this.lang.getIdentifierName(lhs)
-        val lhsType = node.codeType?.let { TypeParser.createFrom(it, false) }
+
+        // Single variable declaration only
+        val lhsNode = this.lang.getFirstChildNodeNamed("VariableExpressionAst", node)
+        if (lhsNode == null) { // Fatalistic Error
+            log.error(
+                "Unable to find firstChild named \"VariableExpressionAst\" under ${node.type}"
+            )
+            return Statement()
+        }
+        val lhsName = this.lang.getIdentifierName(lhsNode)
+        val lhsTypeNode = this.lang.getFirstChildNodeNamed("ConvertExpressionAst", node)
+        val lhsType =
+            lhsTypeNode?.type?.let { TypeParser.createFrom(it, false) }
+                ?: lhsNode.codeType?.let { TypeParser.createFrom(it, false) }
+                    ?: node.codeType?.let { TypeParser.createFrom(it, false) }
+
         val ref =
             NodeBuilder.newDeclaredReferenceExpression(
                 lhsName,
                 lhsType ?: UnknownType.getUnknownType(),
-                this.lang.getCodeFromRawNode(lhs)
+                lhsNode.code
             )
         val resolved = this.lang.scopeManager.resolveReference(ref)
-        val inRecord = this.lang.scopeManager.isInRecord
-        val inFunction = this.lang.scopeManager.isInFunction
-        println("STATUS: resolved: $resolved, inClass: $inRecord, inFunction: $inFunction")
+
+        // Class and Function required to decide if is field declaration; else not required.
+        // val inRecord = this.lang.scopeManager.isInRecord
+        // val inFunction = this.lang.scopeManager.isInFunction
+        // println("STATUS: resolved: $resolved, inClass: $inRecord, inFunction: $inFunction")
         val statement: Statement
         if (resolved != null) {
             statement = handleExpressionStmt(node) // wrap expression under a statement
         } else {
             statement = NodeBuilder.newDeclarationStatement(this.lang.getCodeFromRawNode(node))
             val variableDeclaration = this.lang.declarationHandler.handle(node)
-
-            // statement.addDeclaration(variableDeclaration)
-            statement.addToPropertyEdgeDeclaration(variableDeclaration)
+            statement.singleDeclaration = variableDeclaration
+            // To handle multiple declarations - check the cpp declaration to do this
+            // statement.declarations = variableDeclaration.asList()
             this.lang.scopeManager.addDeclaration(variableDeclaration)
         }
         return statement
     }
 
     private fun handleExpressionStmt(node: PowerShellNode): Expression {
-        // Need to fix this? Seem to be handling other things
+        // wrapper to expression handler
         return this.lang.expressionHandler.handle(node)
     }
 
@@ -130,16 +153,7 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
             }
         }
         val ifStmt = NodeBuilder.newIfStatement(node.code)
-        ifStmt.location =
-            PhysicalLocation(
-                File(node.location.file).toURI(),
-                Region(
-                    node.location.startLine,
-                    node.location.startCol,
-                    node.location.endLine,
-                    node.location.endCol
-                )
-            )
+        ifStmt.location = this.lang.getLocationFromRawNode(node)
         this.lang.scopeManager.enterScope(ifStmt)
         // condition
         ifStmt.condition = handle(node.children!![counter]) as Expression?
@@ -200,6 +214,31 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
         return forStmt
     }
 
+    private fun handleForEachStmt(node: PowerShellNode): ForEachStatement {
+        if (node.children == null || node.children!!.size != 3) {
+            log.warn("ForEachStmt has ${node.children!!.size} children, diff from assumption of 3")
+        }
+        val targetNode = node.children!![0]
+        val itNode = node.children!![1]
+        val stmtNode = node.children!![2]
+
+        val forStmt = NodeBuilder.newForEachStatement(node.code)
+        this.lang.scopeManager.enterScope(forStmt)
+        // handle declaration
+        val decl = NodeBuilder.newDeclarationStatement(targetNode.code)
+        decl.location = this.lang.getLocationFromRawNode(targetNode)
+        decl.singleDeclaration = this.lang.declarationHandler.handle(targetNode)
+        forStmt.variable = decl
+        // handle iterable
+        val it = this.lang.expressionHandler.handle(itNode)
+        forStmt.iterable = it
+        // handle statement
+        val stmt = this.handle(stmtNode)
+        forStmt.statement = stmt
+        this.lang.scopeManager.leaveScope(forStmt)
+        return forStmt
+    }
+
     // First child is the condition, second child is the body.
     private fun handleWhileStmt(node: PowerShellNode): WhileStatement {
         val whileStmt = NodeBuilder.newWhileStatement(node.code)
@@ -221,12 +260,55 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
     }
 
     private fun handleDoUntilStmt(node: PowerShellNode): DoStatement {
-        log.debug("Handling of DoUntil Statements is currently not supported")
+        log.debug(
+            "Handling of DoUntil Statements is currently not supported, handling like doWhile with" +
+                "the conditions inverted by adding '!' to it."
+        )
         val doStmt = NodeBuilder.newDoStatement(node.code)
         this.lang.scopeManager.enterScope(doStmt)
-        doStmt.condition = this.lang.expressionHandler.handle(node.children!![0])
+        val condition = this.lang.expressionHandler.handle(node.children!![0])
+        condition.code = "!(" + condition.code.toString() + ")"
+        doStmt.condition = condition
         doStmt.statement = handle(node.children!![1])
         this.lang.scopeManager.leaveScope(doStmt)
         return doStmt
+    }
+
+    // Standard/simple switch statement can handle - cpp syntax
+    private fun handleSwitchStmt(node: PowerShellNode): SwitchStatement {
+        val switchStmt = NodeBuilder.newSwitchStatement(node.code)
+        this.lang.scopeManager.enterScope(switchStmt)
+
+        // switchStmt.initializerStatement
+        // switchStmt.selectorDeclaration
+
+        if (node.children != null &&
+                node.children!!.isNotEmpty() &&
+                node.children!![0].type == "PipelineAst"
+        ) {
+            val condition = node.children!![0]
+            switchStmt.setSelector(this.lang.expressionHandler.handle(condition))
+        }
+        switchStmt.statement = handleSwitchBody(node)
+        this.lang.scopeManager.leaveScope(switchStmt)
+        return switchStmt
+    }
+
+    private fun handleSwitchBody(node: PowerShellNode): Statement {
+        val compoundStmt = NodeBuilder.newCompoundStatement(node.code)
+        this.lang.scopeManager.enterScope(compoundStmt)
+        val statements =
+            node.children!!.subList(1, (node.children!!.size)) // first one is the Selector
+        val doneList = emptyList<Int>().toMutableList()
+        for ((id, child) in statements.withIndex()) {
+            if (id in doneList) continue
+            val statement = NodeBuilder.newCaseStatement(child.code)
+            statement.setCaseExpression(this.lang.expressionHandler.handle(statements[id + 1]))
+            doneList.add(id + 1)
+            compoundStmt.addStatement(statement)
+            compoundStmt.addStatement(this.lang.expressionHandler.handle(child))
+        }
+        this.lang.scopeManager.leaveScope(compoundStmt)
+        return compoundStmt
     }
 }

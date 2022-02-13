@@ -32,8 +32,8 @@ function printAst($id, $Indent = 0)
     if ($null -ne $_.StaticType) {
       $output += ",`"codeType`": `"{0}`"" -f $_.StaticType.Name
     }
-    if ($null -ne $_.ErrorPosition) {
-      $output += ",`"operator`": `"{0}`"" -f $_.ErrorPosition.text
+    if ($null -ne $_.Operator) {
+      $output += ",`"operator`": `"{0}`"" -f $_.Operator
     }
     if ($null -ne $_.TokenKind) {
       $output += ",`"unaryType`": `"{0}`"" -f $_.TokenKind

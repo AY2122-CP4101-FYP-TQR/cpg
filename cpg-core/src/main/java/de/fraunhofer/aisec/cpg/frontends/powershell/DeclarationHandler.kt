@@ -31,9 +31,6 @@ import de.fraunhofer.aisec.cpg.graph.NodeBuilder
 import de.fraunhofer.aisec.cpg.graph.declarations.*
 import de.fraunhofer.aisec.cpg.graph.types.TypeParser
 import de.fraunhofer.aisec.cpg.graph.types.UnknownType
-import de.fraunhofer.aisec.cpg.sarif.PhysicalLocation
-import de.fraunhofer.aisec.cpg.sarif.Region
-import java.io.File
 
 @ExperimentalPowerShell
 class DeclarationHandler(lang: PowerShellLanguageFrontend) :
@@ -45,136 +42,131 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
     private fun handleNode(node: PowerShellNode): Declaration {
         println("DECLARATION:  ${node.type}")
         when (node.type) {
-            "FunctionDefinitionAst" -> return functionDeclaration(node)
-            "AssignmentStatementAst" -> return handleVariableDeclaration(node)
+            "FunctionDefinitionAst" -> return handleFunctionDeclaration(node)
+            "AssignmentStatementAst" -> return handleVariableAssign(node)
+            "VariableExpressionAst" -> return handleVariableDeclaration(node)
         }
         return Declaration()
     }
 
-    fun functionDeclaration(node: PowerShellNode): FunctionDeclaration {
+    private fun handleFunctionDeclaration(node: PowerShellNode): FunctionDeclaration {
         // children node here is ScriptBlockAst
         if (node.children!!.size != 1)
-            println("FIX ME: functionDeclaration - more than 1 child in function.")
+            log.error("FIX ME: functionDeclaration - more than 1 child in function.")
         // TODO Find cases with more than 1 child?
         val scriptBlock = node.children!![0]
 
-        if (scriptBlock.children!!.size != 2)
-            println("FIX ME: functionDeclaration - more than 2 child in function scriptBlock.")
+        /*  if one child then handle body
+         *  if more than one child then handle body + param
+         *  handling of body need to be able to handle function declaration too, add to stmt.
+         */
+        // One child is params+attributes, Another is body
 
-        val funcHeader = scriptBlock.children!![0]
-        val funcBody = scriptBlock.children!![1]
+        var funcHeader: PowerShellNode? = null
+        var funcBody: PowerShellNode? = null
+        for (child in scriptBlock.children!!) {
+            if (child.type == "ParamBlockAst") {
+                funcHeader = child
+                // This assumption that the body is of this type seems reasonable and accurate as
+                // far as tested.
+                // Represents a begin, process, end or dynamicparam block of a scriptblock - {}
+            } else if (child.type == "NamedBlockAst") {
+                funcBody = child
+            }
+        }
 
         val name = node.name!!
         val funcDecl = NodeBuilder.newFunctionDeclaration(name, node.code)
         this.lang.scopeManager.enterScope(funcDecl)
-        // what am i supposed to do here?
         // handle the function body
-        funcDecl.type = TypeParser.createFrom("string", false)
-        funcDecl.parameters = handleFuncParamDecl(funcHeader)
-        funcDecl.body = this.lang.statementHandler.handle(funcBody)
+        // PS function return type are rather complex - hard to determine.
+        // funcDecl.type = TypeParser.createFrom("string", false)
+        if (funcHeader != null) funcDecl.parameters = handleFuncParamDecl(funcHeader)
+        if (funcBody != null) funcDecl.body = this.lang.statementHandler.handle(funcBody)
 
         this.lang.scopeManager.leaveScope(funcDecl)
         this.lang.scopeManager.addDeclaration(funcDecl)
-        // only in CPP they check for declarations of the same function
+        // only in CPP they check for declarations of the same function;
+        // Perfectly legal to declare another function of the same name in PS, later one will take
+        // precedence
         return funcDecl
     }
 
-    // Creating a simple cmdlet declaration as that is done in python as well
-    fun cmdletDeclaration(node: PowerShellNode) {
-        // node here is CommandAst (called ONLY by function call expression)
-        // Declare the function
-        val funcHeader = node.children!![0]
-
-        val cmdlet = NodeBuilder.newFunctionDeclaration(funcHeader.code!!, node.code)
-        this.lang.scopeManager.enterScope(cmdlet)
-        cmdlet.type = TypeParser.createFrom(funcHeader.codeType!!, false)
-        cmdlet.parameters = handleArgs(node)
-        // no body
-        this.lang.scopeManager.leaveScope(cmdlet)
-        this.lang.scopeManager.addDeclaration(cmdlet)
-    }
-
-    fun handleArgs(node: PowerShellNode): List<ParamVariableDeclaration> {
-        var paramList: MutableList<ParamVariableDeclaration> = mutableListOf()
-        var params = node.children!!.subList(1, (node.children!!.size))
-        for ((counter, param) in params.withIndex()) {
-            // for now just use this as the param values. There may be meaning in going deeper into
-            // its structure?
-            var type = param.codeType?.let { TypeParser.createFrom(it, false) }
-            var paramVariableDecl =
-                NodeBuilder.newMethodParameterIn(
-                    param.name ?: param.code,
-                    type ?: UnknownType.getUnknownType(),
-                    false,
-                    param.code
-                )
-            paramVariableDecl.location =
-                PhysicalLocation(
-                    File(param.location.file).toURI(),
-                    Region(
-                        param.location.startLine,
-                        param.location.startCol,
-                        param.location.endLine,
-                        param.location.endCol
-                    )
-                )
-            paramVariableDecl.argumentIndex = counter
-            paramList.add(paramVariableDecl)
-            this.lang.scopeManager.addDeclaration(paramVariableDecl)
-        }
-        return paramList
-    }
-
     // AST here should be ParamBlockAst
-    fun handleFuncParamDecl(node: PowerShellNode): List<ParamVariableDeclaration> {
-        var paramList: MutableList<ParamVariableDeclaration> = mutableListOf()
+    // Children can be AttributeAst - attribute for entire function
+    //              or ParameterAst - which are the parameters (only extract this)
+    // ParameterAst can have children too - to set type and attributes.
+    // Only the type is handled, attributes are currently ignored.
+    private fun handleFuncParamDecl(node: PowerShellNode): List<ParamVariableDeclaration> {
+        val paramList: MutableList<ParamVariableDeclaration> = mutableListOf()
         // iterate to the ParamBlockAst which will have children, each containing param info.
-        for ((counter, paramNode) in node.children!!.withIndex()) {
-            println("funcParams:  ${paramNode.type}")
+        var counter = 0
+        for (paramNode in node.children!!) {
+            if (paramNode.type != "ParameterAst") continue
             // if there's a way to know the type then change this (PS not strictly typed)
-            var type = paramNode.codeType?.let { TypeParser.createFrom(it, false) }
-            var paramVariableDecl =
+            // val typeNode = this.lang.getFirstChildNodeNamed("TypeConstraintAst", paramNode)
+            val type =
+            // typeNode?.codeType?.let { TypeParser.createFrom(it, false) } ?:
+            paramNode.codeType?.let { TypeParser.createFrom(it, false) }
+            val paramVariableDecl =
                 NodeBuilder.newMethodParameterIn(
                     paramNode.name,
                     type ?: UnknownType.getUnknownType(),
                     false,
                     paramNode.code
                 )
-            paramVariableDecl.location =
-                PhysicalLocation(
-                    File(paramNode.location.file).toURI(),
-                    Region(
-                        paramNode.location.startLine,
-                        paramNode.location.startCol,
-                        paramNode.location.endLine,
-                        paramNode.location.endCol
-                    )
-                )
+            paramVariableDecl.location = this.lang.getLocationFromRawNode(paramNode)
             paramVariableDecl.argumentIndex = counter
             paramList.add(paramVariableDecl)
             this.lang.scopeManager.addDeclaration(paramVariableDecl)
+            counter += 1
         }
         return paramList
     }
 
-    private fun handleVariableDeclaration(node: PowerShellNode): Declaration {
-        // Future work: need to handle multiple variable declarations - children[0] will be
-        // ArrayLiteralAst
-        if (node.children!!.size != 2)
-            print("FIX ME:  - more than 2 children in handleVariableDecl.")
-        val lhs = node.children!![0]
-        val rhs = node.children!![1]
+    // Does not handle multiple variable declaration
+    // e.g. $a, $b, $b = 2, 4, 5
+    // This function handles declaration of ONE variable.
+    // LHS is variable, RHS can be anything
+    private fun handleVariableAssign(node: PowerShellNode): Declaration {
+        val lhsNode = this.lang.getFirstChildNodeNamed("VariableExpressionAst", node.children!![0])
+        val rhsNode = node.children!![1]
+        if (lhsNode == null) { // Fatalistic Error
+            log.error(
+                "Unable to find firstChild named \"VariableExpressionAst\" under ${node.type}"
+            )
+            return Declaration()
+        }
+        val lhsName = this.lang.getIdentifierName(lhsNode)
+        val lhsTypeNode = this.lang.getFirstChildNodeNamed("ConvertExpressionAst", node)
+        val lhsType =
+            lhsTypeNode?.type?.let { TypeParser.createFrom(it, false) }
+                ?: lhsNode.codeType?.let { TypeParser.createFrom(it, false) }
+                    ?: node.codeType?.let { TypeParser.createFrom(it, false) }
 
-        val name = this.lang.getIdentifierName(lhs)
-        val `var` =
+        val variable =
             NodeBuilder.newVariableDeclaration(
-                name,
-                UnknownType.getUnknownType(),
-                this.lang.getCodeFromRawNode(lhs),
+                lhsName,
+                lhsType ?: UnknownType.getUnknownType(),
+                this.lang.getCodeFromRawNode(lhsNode),
                 false
             )
-        `var`.location = this.lang.getLocationFromRawNode(lhs)
-        `var`.initializer = this.lang.expressionHandler.handle(rhs)
-        return `var`
+        variable.location = this.lang.getLocationFromRawNode(lhsNode)
+        variable.initializer = this.lang.expressionHandler.handle(rhsNode)
+        return variable
+    }
+
+    private fun handleVariableDeclaration(node: PowerShellNode): Declaration {
+        val name = node.name
+        val type = node.codeType?.let { TypeParser.createFrom(node.type, false) }
+        val variable =
+            NodeBuilder.newVariableDeclaration(
+                name,
+                type ?: UnknownType.getUnknownType(),
+                this.lang.getCodeFromRawNode(node),
+                false
+            )
+        variable.location = this.lang.getLocationFromRawNode(node)
+        return variable
     }
 }

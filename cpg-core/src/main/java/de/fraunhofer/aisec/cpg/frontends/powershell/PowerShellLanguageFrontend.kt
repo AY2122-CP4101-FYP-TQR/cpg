@@ -83,6 +83,39 @@ class PowerShellLanguageFrontend(
         return translationUnit
     }
 
+    // DFS type of searching
+    fun getFirstChildNodeNamed(targetType: String, node: PowerShellNode): PowerShellNode? {
+        if (node.type == targetType) return node
+
+        if (node.children != null) {
+            for (child in node.children!!) {
+                if (child.type == targetType) {
+                    return child
+                } else {
+                    val ret = getFirstChildNodeNamed(targetType, child)
+                    if (ret != null) {
+                        if (ret.type == targetType) return ret
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    fun getAllLastChildren(
+        node: PowerShellNode,
+        list: MutableList<PowerShellNode>
+    ): List<PowerShellNode> {
+        if (node.children == null) {
+            list.add(node)
+        } else {
+            for (child in node.children!!) {
+                getAllLastChildren(child, list)
+            }
+        }
+        return list.toList()
+    }
+
     override fun <T : Any?> getCodeFromRawNode(astNode: T): String? {
         return if (astNode is PowerShellNode) {
             return astNode.code
@@ -94,13 +127,11 @@ class PowerShellLanguageFrontend(
     override fun <T : Any?> getLocationFromRawNode(astNode: T): PhysicalLocation? {
         return if (astNode is PowerShellNode) {
 
-            var startLine = astNode.location.startLine
-            var endLine = astNode.location.endLine
-            var startCol = astNode.location.startCol
-            var endCol = astNode.location.endCol
+            val startLine = astNode.location.startLine
+            val endLine = astNode.location.endLine
+            val startCol = astNode.location.startCol
+            val endCol = astNode.location.endCol
 
-            // val region = getRegionFromStartEnd(File(astNode.location.file), position,
-            // astNode.location.end)
             val region = Region(startLine, startCol, endLine, endCol)
             return PhysicalLocation(File(astNode.location.file).toURI(), region ?: Region())
         } else {
