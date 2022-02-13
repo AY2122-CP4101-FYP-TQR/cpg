@@ -29,6 +29,7 @@ import de.fraunhofer.aisec.cpg.*
 import de.fraunhofer.aisec.cpg.frontends.CompilationDatabase.Companion.fromFile
 import de.fraunhofer.aisec.cpg.frontends.golang.GoLanguageFrontend
 import de.fraunhofer.aisec.cpg.frontends.llvm.LLVMIRLanguageFrontend
+import de.fraunhofer.aisec.cpg.frontends.powershell.PowerShellLanguageFrontend
 import de.fraunhofer.aisec.cpg.frontends.python.PythonLanguageFrontend
 import de.fraunhofer.aisec.cpg.frontends.typescript.TypeScriptLanguageFrontend
 import java.io.File
@@ -159,6 +160,14 @@ class Application : Callable<Int> {
     )
     private var enableExperimentalTypeScript: Boolean = false
 
+    @CommandLine.Option(
+        names = ["--enable-experimental-powershell"],
+        description =
+            [
+                "Enables the experimental language frontend for PowerShell. Be aware, that further steps might be necessary to install native libraries such as jep"]
+    )
+    private var enableExperimentalPowerShell: Boolean = false
+
     /**
      * Pushes the whole translationResult to the neo4j db.
      *
@@ -239,7 +248,12 @@ class Application : Callable<Int> {
      * point to a file, is a directory or point to a hidden file or the paths does not have the same
      * top level path.
      */
-    @OptIn(ExperimentalPython::class, ExperimentalGolang::class, ExperimentalTypeScript::class)
+    @OptIn(
+        ExperimentalPython::class,
+        ExperimentalGolang::class,
+        ExperimentalTypeScript::class,
+        ExperimentalPowerShell::class
+    )
     private fun setupTranslationConfiguration(): TranslationConfiguration {
         assert(mutuallyExclusiveParameters.files.isNotEmpty())
         val filePaths = arrayOfNulls<File>(mutuallyExclusiveParameters.files.size)
@@ -301,6 +315,13 @@ class Application : Callable<Int> {
                 TypeScriptLanguageFrontend::class.java,
                 TypeScriptLanguageFrontend.TYPESCRIPT_EXTENSIONS +
                     TypeScriptLanguageFrontend.JAVASCRIPT_EXTENSIONS
+            )
+        }
+
+        if (enableExperimentalPowerShell) {
+            translationConfiguration.registerLanguage(
+                PowerShellLanguageFrontend::class.java,
+                PowerShellLanguageFrontend.POWERSHELL_EXTENSIONS
             )
         }
 
