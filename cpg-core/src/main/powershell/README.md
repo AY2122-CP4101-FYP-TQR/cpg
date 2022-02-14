@@ -16,7 +16,12 @@ The features implemented are able to handle most simple cases and may have diffi
   - Same as DoWhile but with inverted conditions
 - [x] Switch
 - [x] Simple ScriptBlock
-- [x] Pipeline
+- [x] Simple Pipeline
+
+### Possible ToDo
+- [ ] Try and Catch 
+- [ ] Break and Continue
+- [ ] Custom objects
 
 ### Areas identified that are not Implemented
 This list contains features identified that are not implemented due to resource constraints like time.
