@@ -21,7 +21,7 @@ The features implemented are able to handle most simple cases and may have diffi
 ### Possible ToDo
 - [ ] Try and Catch 
 - [ ] Break and Continue
-- [ ] Custom objects
+- [ ] Member functions invocation 
 
 ### Areas identified that are not Implemented
 This list contains features identified that are not implemented due to resource constraints like time.
