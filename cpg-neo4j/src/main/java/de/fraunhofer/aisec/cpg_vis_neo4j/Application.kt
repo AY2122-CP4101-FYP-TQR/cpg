@@ -32,6 +32,7 @@ import de.fraunhofer.aisec.cpg.frontends.llvm.LLVMIRLanguageFrontend
 import de.fraunhofer.aisec.cpg.frontends.powershell.PowerShellLanguageFrontend
 import de.fraunhofer.aisec.cpg.frontends.python.PythonLanguageFrontend
 import de.fraunhofer.aisec.cpg.frontends.typescript.TypeScriptLanguageFrontend
+import de.fraunhofer.aisec.cpg.helpers.Benchmark
 import java.io.File
 import java.net.ConnectException
 import java.nio.file.Paths
@@ -162,11 +163,27 @@ class Application : Callable<Int> {
 
     @CommandLine.Option(
         names = ["--enable-experimental-powershell"],
-        description =
-            [
-                "Enables the experimental language frontend for PowerShell. Be aware, that further steps might be necessary to install native libraries such as jep"]
+        description = ["Enables the experimental language frontend for PowerShell."]
     )
     private var enableExperimentalPowerShell: Boolean = false
+
+    @CommandLine.Option(
+        names = ["--print-benchmark"],
+        description = ["Print benchmark result as markdown table"]
+    )
+    private var printBenchmark: Boolean = false
+
+    @CommandLine.Option(
+        names = ["--no-default-passes"],
+        description = ["Do not register default passes [used for debugging]"]
+    )
+    private var noDefaultPasses: Boolean = false
+
+    @CommandLine.Option(
+        names = ["--no-neo4j"],
+        description = ["Do not push cpg into neo4j [used for debugging]"]
+    )
+    private var noNeo4j: Boolean = false
 
     /**
      * Pushes the whole translationResult to the neo4j db.
@@ -178,8 +195,13 @@ class Application : Callable<Int> {
      */
     @Throws(InterruptedException::class, ConnectException::class)
     fun pushToNeo4j(translationResult: TranslationResult) {
+        var bench = Benchmark(this.javaClass, "Push cpg to neo4j", false, translationResult)
         log.info("Using import depth: $depth")
-        log.info("Count base nodes to save: " + translationResult.translationUnits.size)
+        log.info(
+            "Count base nodes to save: " +
+                translationResult.translationUnits.size +
+                translationResult.additionalNodes.size
+        )
 
         val sessionAndSessionFactoryPair = connect()
 
@@ -187,11 +209,13 @@ class Application : Callable<Int> {
         session.beginTransaction().use { transaction ->
             if (PURGE_DB) session.purgeDatabase()
             session.save(translationResult.translationUnits, depth)
+            session.save(translationResult.additionalNodes, depth)
             transaction.commit()
         }
 
         session.clear()
         sessionAndSessionFactoryPair.second.close()
+        bench.stop()
     }
 
     /**
@@ -278,10 +302,13 @@ class Application : Callable<Int> {
             TranslationConfiguration.builder()
                 .sourceLocations(*filePaths)
                 .topLevel(topLevel)
-                .defaultPasses()
                 .defaultLanguages()
                 .loadIncludes(loadIncludes)
                 .debugParser(DEBUG_PARSER)
+
+        if (!noDefaultPasses) {
+            translationConfiguration.defaultPasses()
+        }
 
         if (mutuallyExclusiveParameters.jsonCompilationDatabase != null) {
             val db = fromFile(mutuallyExclusiveParameters.jsonCompilationDatabase!!)
@@ -371,10 +398,16 @@ class Application : Callable<Int> {
             "Benchmark: analyzing code in " + (analyzingTime - startTime) / S_TO_MS_FACTOR + " s."
         )
 
-        pushToNeo4j(translationResult)
+        if (!noNeo4j) {
+            pushToNeo4j(translationResult)
+        }
 
         val pushTime = System.currentTimeMillis()
         log.info("Benchmark: push code in " + (pushTime - analyzingTime) / S_TO_MS_FACTOR + " s.")
+
+        if (printBenchmark) {
+            translationResult.printBenchmark()
+        }
 
         return EXIT_SUCCESS
     }
