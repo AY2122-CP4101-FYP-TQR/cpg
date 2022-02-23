@@ -44,10 +44,12 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
         println("EXPRESSION:  ${node.type}")
         when (node.type) {
             // Wrapper AST classes
-            "PipelineAst" -> return handlePipelineExpression(node)
             "CommandExpressionAst" -> return handleWrapperExpression(node)
             "ParenExpressionAst" -> return handleWrapperExpression(node)
             "StatementBlockAst" -> return handleWrapperExpression(node)
+            "ScriptBlockExpressionAst" -> return handleWrapperExpression(node)
+            "PipelineAst" -> return handlePipelineExpression(node)
+            "ScriptBlockAst" -> return handleScriptBlock(node)
 
             // AST Parents passed in to handle children
             "CommandAst" -> return handleCommand(node)
@@ -65,38 +67,46 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
             "StringConstantExpressionAst" -> return handleLiteralExpression(node)
             "FunctionDefinitionAst" -> return handleDeclaration(node)
             "ArrayExpressionAst" -> return handleArrayExpression(node)
-            "ScriptBlockExpressionAst" -> return handleWrapperExpression(node)
-            "ScriptBlockAst" -> return handleScriptBlock(node)
-            "NamedBlockAst" -> return handlePipelineExpression(node)
+            "ConvertExpressionAst" -> return handleConvertExpression(node)
+
+            // TODO
+            "InvokeMemberExpressionAst" -> return handleMemberExpr(node)
         }
         log.warn("EXPRESSION: Not handled situations: ${node.type}")
         return Expression()
     }
 
-    // Do not see a difference when attempting to add another TUD
-    // Current solution is to treat it as a different namespace
-    fun handleScriptBlock(node: PowerShellNode): Expression {
-        // exp.addDeclaration(this.lang.tudHandler.handle(node.children!![0]))
+    // Current solution is to treat it as compoundStatementExpression
+    //   where it is both a statement and expression so that it has more flexibility to do anything
+    //   Also assumes that this is a wrapper to "NamedBlockAst"
+    private fun handleScriptBlock(node: PowerShellNode): Expression {
         val compoundExprStmt = NodeBuilder.newCompoundStatementExpression(node.code!!)
-
-        // val script = NodeBuilder.newTranslationUnitDeclaration("script", "script code")
-        // compoundExprStmt.addDeclaration(script)
-        val ns = NodeBuilder.newNamespaceDeclaration(node.code!!, node.code)
-        // script.addDeclaration(ns)
-        this.lang.scopeManager.enterScope(ns)
-        val test = this.handle(node.children!![0])
-        ns.addStatement(test)
-        this.lang.scopeManager.leaveScope(ns)
-        // this.lang.scopeManager.addDeclaration(script)
-        this.lang.scopeManager.addDeclaration(ns)
-        // script.addDeclaration(ns)
+        if (node.children!!.size == 1) {
+            compoundExprStmt.statement = this.lang.statementHandler.handle(node.children!![0])
+        } else if (node.children!!.size > 1) {
+            // TODO add tagging of each statement perhaps with begin, process, end NamedBlockAst
+            // blocks
+            val compoundStmt = NodeBuilder.newCompoundStatement(node.code)
+            this.lang.scopeManager.enterScope(compoundStmt)
+            for (child in node.children!!) {
+                compoundStmt.addStatement(this.lang.statementHandler.handle(child))
+            }
+            this.lang.scopeManager.leaveScope(compoundStmt)
+            compoundExprStmt.statement = compoundStmt
+        } else {
+            // Should not happen.
+            log.error("ScriptBlock has no children")
+        }
         return compoundExprStmt
     }
 
+    // First of a pipeline can be expression.
+    // The rest cannot.
     private fun handlePipelineExpression(node: PowerShellNode): Expression {
         return if (node.children!!.size == 1) {
             this.handle(node.children!![0])
         } else {
+            // TODO Extremely buggy need to fix this.
             val compoundExprStmt = NodeBuilder.newCompoundStatementExpression(node.code!!)
             compoundExprStmt.statement = this.lang.statementHandler.handleGenericBlock(node)
             return compoundExprStmt
@@ -249,9 +259,11 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
             log.warn(
                 "function definition list has more than 1 definition found, may not be the correct function def"
             )
-        // sCRIPTBLOCKEXPRESSIONAST DO STH DIFF
-        val params = node.children!!.subList(1, (node.children!!.size))
-        if (params.isNotEmpty()) processCommandArgs(functionCall, functionDefList, params)
+
+        val children = node.children!!.subList(1, (node.children!!.size))
+        if (children.isNotEmpty()) {
+            processCommandArgs(functionCall, functionDefList, children)
+        }
 
         return functionCall
     }
@@ -281,6 +293,9 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
                 doneList.add(index + 1)
                 paramValue.argumentIndex = paramsMap[paramName] ?: index
                 functionCall.addArgument(paramValue)
+            } else if (param.type == "ScriptBlockExpressionAst") {
+                log.warn("HI")
+                functionCall.addArgument(this.lang.expressionHandler.handle(param))
             } else {
                 // The middle AST structures do not contain information that are essential
                 // Plus they can intertwine between ArrayLiteralAst and ParenExpressionAst,
@@ -302,5 +317,19 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
         val expr = NodeBuilder.newCompoundStatementExpression(node.code!!)
         expr.statement = this.lang.statementHandler.handle(node)
         return expr
+    }
+
+    private fun handleConvertExpression(node: PowerShellNode): Expression {
+        if (node.children!!.size != 2) log.error("convertExpression has more than 2 children")
+        val varNode = node.children!![1]
+
+        val cast = NodeBuilder.newCastExpression(node.code)
+        cast.expression = this.handle(varNode)
+        cast.castType = TypeParser.createFrom(node.codeType!!, false)
+        return cast
+    }
+
+    private fun handleMemberExpr(node: PowerShellNode): Expression {
+        return Expression()
     }
 }

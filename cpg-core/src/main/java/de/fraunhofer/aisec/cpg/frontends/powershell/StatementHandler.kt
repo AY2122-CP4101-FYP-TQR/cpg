@@ -55,7 +55,6 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
             "DoUntilStatementAst" -> return handleDoUntilStmt(node)
             "ForEachStatementAst" -> return handleForEachStmt(node)
             "StatementBlockAst" -> return handleStatementBlock(node)
-
             "CommandAst" -> return handleExpressionStmt(node)
             "CommandExpressionAst" -> return handleExpressionStmt(node)
         }
@@ -95,35 +94,24 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
     // Current implementation: Declaration if new; Declared reference if old
     private fun handleAssignmentStmt(node: PowerShellNode): Statement {
         if (node.children!!.size != 2)
-            print("FIX ME:  - more than 2 children in handleAssignmentStmt.")
+            log.error("handleAssignmentStmt have ${node.children!!.size} number of children")
 
         // Single variable declaration only
-        val lhsNode = this.lang.getFirstChildNodeNamed("VariableExpressionAst", node)
-        if (lhsNode == null) { // Fatalistic Error
-            log.error(
-                "Unable to find firstChild named \"VariableExpressionAst\" under ${node.type}"
-            )
-            return Statement()
-        }
-        val lhsName = this.lang.getIdentifierName(lhsNode)
-        val lhsTypeNode = this.lang.getFirstChildNodeNamed("ConvertExpressionAst", node)
-        val lhsType =
-            lhsTypeNode?.type?.let { TypeParser.createFrom(it, false) }
-                ?: lhsNode.codeType?.let { TypeParser.createFrom(it, false) }
-                    ?: node.codeType?.let { TypeParser.createFrom(it, false) }
-
+        val varNode = node.children!![0]
+        val varName = this.lang.getIdentifierName(varNode)
+        val varType = varNode.codeType?.let { TypeParser.createFrom(it, false) }
         val ref =
             NodeBuilder.newDeclaredReferenceExpression(
-                lhsName,
-                lhsType ?: UnknownType.getUnknownType(),
-                lhsNode.code
+                varName,
+                varType ?: UnknownType.getUnknownType(),
+                varNode.code
             )
         val resolved = this.lang.scopeManager.resolveReference(ref)
 
         // Class and Function required to decide if is field declaration; else not required.
-        // val inRecord = this.lang.scopeManager.isInRecord
-        // val inFunction = this.lang.scopeManager.isInFunction
-        // println("STATUS: resolved: $resolved, inClass: $inRecord, inFunction: $inFunction")
+        val inRecord = this.lang.scopeManager.isInRecord
+        val inFunction = this.lang.scopeManager.isInFunction
+        println("STATUS: resolved: $resolved, inClass: $inRecord, inFunction: $inFunction")
         val statement: Statement
         if (resolved != null) {
             statement = handleExpressionStmt(node) // wrap expression under a statement
