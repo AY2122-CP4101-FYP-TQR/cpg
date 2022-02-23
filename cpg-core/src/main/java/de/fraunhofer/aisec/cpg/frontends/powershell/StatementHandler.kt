@@ -109,9 +109,9 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
         val resolved = this.lang.scopeManager.resolveReference(ref)
 
         // Class and Function required to decide if is field declaration; else not required.
-        val inRecord = this.lang.scopeManager.isInRecord
-        val inFunction = this.lang.scopeManager.isInFunction
-        println("STATUS: resolved: $resolved, inClass: $inRecord, inFunction: $inFunction")
+        // val inRecord = this.lang.scopeManager.isInRecord
+        // val inFunction = this.lang.scopeManager.isInFunction
+        // println("STATUS: resolved: $resolved, inClass: $inRecord, inFunction: $inFunction")
         val statement: Statement
         if (resolved != null) {
             statement = handleExpressionStmt(node) // wrap expression under a statement

@@ -68,9 +68,7 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
             "FunctionDefinitionAst" -> return handleDeclaration(node)
             "ArrayExpressionAst" -> return handleArrayExpression(node)
             "ConvertExpressionAst" -> return handleConvertExpression(node)
-
-            // TODO
-            "InvokeMemberExpressionAst" -> return handleMemberExpr(node)
+            "InvokeMemberExpressionAst" -> return handleMemberExpression(node)
         }
         log.warn("EXPRESSION: Not handled situations: ${node.type}")
         return Expression()
@@ -329,7 +327,27 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
         return cast
     }
 
-    private fun handleMemberExpr(node: PowerShellNode): Expression {
-        return Expression()
+    private fun handleMemberExpression(node: PowerShellNode): Expression {
+        val caller = this.handle(node.children!![0])
+        val member = this.handleDeclaredReferenceExpression(node.children!![1])
+        val params: List<PowerShellNode>
+        val memberFunc =
+            NodeBuilder.newMemberCallExpression(
+                member.code,
+                member.code,
+                caller,
+                member,
+                ".",
+                node.code
+            )
+        if (node.children!!.size > 2) {
+            params = node.children!!.subList(1, (node.children!!.size))
+            for ((index, param) in params.withIndex()) {
+                val arg = this.handle(param)
+                arg.argumentIndex = index
+                memberFunc.addArgument(arg)
+            }
+        }
+        return memberFunc
     }
 }
