@@ -15,13 +15,17 @@ The features implemented are able to handle most simple cases and may have diffi
 - [x] DoUntil
   - Same as DoWhile but with inverted conditions
 - [x] Switch
-- [x] Simple ScriptBlock
-- [x] Simple Pipeline
+- [x] ScriptBlock
+- [x] Pipeline (Limited functionality)
+- [x] MemberCall Invocation 
+  - E.g. "a".Invoke()
 
-### Possible ToDo
+### ToDo
+- [ ] Improve Pipeline
+  - Linking one pipe's output to another's input.
+  - Able more complex pipelines
 - [ ] Try and Catch 
 - [ ] Break and Continue
-- [ ] Member functions invocation 
 
 ### Areas identified that are not Implemented
 This list contains features identified that are not implemented due to resource constraints like time.
