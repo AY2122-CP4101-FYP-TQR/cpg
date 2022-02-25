@@ -154,6 +154,8 @@ class Location(
     var endCol: Int
 )
 
+class ForLoop(var init: Boolean, var condition: Boolean, var body: Boolean, var iterator: Boolean)
+
 class PowerShellNode(
     var type: String,
     var name: String?,
@@ -164,7 +166,8 @@ class PowerShellNode(
 
     // other details specific to certain AST
     var operator: String?,
-    var unaryType: String?
+    var unaryType: String?,
+    var forLoop: ForLoop?
 ) {
     /** Returns the first child node, that represent a type, if it exists. */
     val typeChildNode: PowerShellNode?

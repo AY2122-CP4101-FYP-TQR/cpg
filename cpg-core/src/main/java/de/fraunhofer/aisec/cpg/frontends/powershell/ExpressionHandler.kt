@@ -66,10 +66,13 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
             "ConstantExpressionAst" -> return handleLiteralExpression(node)
             "StringConstantExpressionAst" -> return handleLiteralExpression(node)
             "FunctionDefinitionAst" -> return handleDeclaration(node)
-            "ArrayExpressionAst" -> return handleArrayExpression(node)
+            // Unsure of their differences
+            "ArrayExpressionAst" ->
+                return handleArrayExpression(node) // Explicit array declaration @()
+            "ArrayLiteralAst" -> return handleArrayExpression(node) // with commas
+            "IndexExpressionAst" -> return handleArraySubscriptExpression(node)
             "ConvertExpressionAst" -> return handleConvertExpression(node)
             "InvokeMemberExpressionAst" -> return handleMemberCallExpression(node)
-
             "MemberExpressionAst" -> return handleMemberExpression(node)
         }
         log.warn("EXPRESSION: Not handled situations: ${node.type}")
@@ -224,8 +227,15 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
         for (item in items) {
             list.add(this.handle(item))
         }
-        expr.setInitializers(list)
+        expr.initializers = list
         return expr
+    }
+
+    private fun handleArraySubscriptExpression(node: PowerShellNode): Expression {
+        val arraySubsExpression = NodeBuilder.newArraySubscriptionExpression(node.code)
+        arraySubsExpression.arrayExpression = handle(node.children!![0])
+        arraySubsExpression.subscriptExpression = handle(node.children!![1])
+        return arraySubsExpression
     }
 
     /**
@@ -284,15 +294,21 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
         }
         // can have mixed so need to handle them together
 
-        var doneList = emptyList<Int>().toMutableList()
+        val doneList = emptyList<Int>().toMutableList()
         for ((index, param) in paramsList.withIndex()) {
             if (index in doneList) continue
             if (param.type == "CommandParameterAst") {
                 val paramName = param.code!!.replace("-", "$")
-                val paramValue = this.handle(paramsList[index + 1])
-                doneList.add(index + 1)
-                paramValue.argumentIndex = paramsMap[paramName] ?: index
-                functionCall.addArgument(paramValue)
+                if (paramsList.size > (index + 1) &&
+                        paramsList[index + 1].type != "CommandParameterAst"
+                ) {
+                    val paramValue = this.handle(paramsList[index + 1])
+                    doneList.add(index + 1)
+                    println("DONE: ${param.code}")
+                    paramValue.argumentIndex = paramsMap[paramName] ?: ((index + 1) / 2)
+                    paramValue.code = param.code + " " + paramValue.code
+                    functionCall.addArgument(paramValue)
+                }
             } else if (param.type == "ScriptBlockExpressionAst") {
                 log.warn("HI")
                 functionCall.addArgument(this.lang.expressionHandler.handle(param))

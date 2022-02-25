@@ -45,7 +45,8 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
             "FunctionDefinitionAst" -> return handleFunctionDeclaration(node)
             "AssignmentStatementAst" -> return handleVariableAssign(node)
             "VariableExpressionAst" -> return handleVariableDeclaration(node)
-            "MemberExpressionAst" -> return handleStaticVariable(node)
+            "MemberExpressionAst" -> return handleNestedVariable(node)
+            "ConvertExpressionAst" -> return handleNestedVariable(node)
         }
         return Declaration()
     }
@@ -155,7 +156,7 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
         return variable
     }
 
-    private fun handleStaticVariable(node: PowerShellNode): VariableDeclaration {
+    private fun handleNestedVariable(node: PowerShellNode): VariableDeclaration {
         val staticVar = node.children!![1]
         val name = staticVar.name ?: staticVar.code
         val type = node.codeType?.let { TypeParser.createFrom(it, false) }

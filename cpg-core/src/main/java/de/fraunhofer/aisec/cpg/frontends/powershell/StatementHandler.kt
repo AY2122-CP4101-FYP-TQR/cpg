@@ -188,16 +188,28 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
 
     private fun handleForStmt(node: PowerShellNode): ForStatement {
         val forStmt = NodeBuilder.newForStatement(node.code)
+        val forLoop = node.forLoop!!
+        var counter = 0
         this.lang.scopeManager.enterScope(forStmt)
         // Handle initializer - child[0] is AssignmentStatementAst
-        forStmt.initializerStatement = handle(node.children!![0])
+        if (forLoop.init) {
+            forStmt.initializerStatement = handle(node.children!![counter])
+            counter += 1
+        }
         // Handle condition - child[1] is PipelineAst
-        forStmt.condition = handle(node.children!![1]) as Expression
-        // Handle iteration
-        forStmt.iterationStatement = handle(node.children!![2])
-        // Handle body
-        forStmt.statement = handle(node.children!![3])
-
+        if (forLoop.condition) {
+            forStmt.condition = handle(node.children!![counter]) as Expression
+            counter += 1
+        }
+        // Handle iteration - child[2] is
+        if (forLoop.iterator) {
+            forStmt.iterationStatement = handle(node.children!![counter])
+            counter += 1
+        }
+        // Handle body - child[3] is
+        if (forLoop.body) {
+            forStmt.statement = handle(node.children!![counter])
+        }
         this.lang.scopeManager.leaveScope(forStmt)
         return forStmt
     }
