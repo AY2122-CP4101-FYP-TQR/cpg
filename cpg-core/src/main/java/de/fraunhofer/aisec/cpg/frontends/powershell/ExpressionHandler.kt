@@ -68,7 +68,9 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
             "FunctionDefinitionAst" -> return handleDeclaration(node)
             "ArrayExpressionAst" -> return handleArrayExpression(node)
             "ConvertExpressionAst" -> return handleConvertExpression(node)
-            "InvokeMemberExpressionAst" -> return handleMemberExpression(node)
+            "InvokeMemberExpressionAst" -> return handleMemberCallExpression(node)
+
+            "MemberExpressionAst" -> return handleMemberExpression(node)
         }
         log.warn("EXPRESSION: Not handled situations: ${node.type}")
         return Expression()
@@ -327,7 +329,7 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
         return cast
     }
 
-    private fun handleMemberExpression(node: PowerShellNode): Expression {
+    private fun handleMemberCallExpression(node: PowerShellNode): Expression {
         val caller = this.handle(node.children!![0])
         val member = this.handleDeclaredReferenceExpression(node.children!![1])
         val params: List<PowerShellNode>
@@ -349,5 +351,26 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
             }
         }
         return memberFunc
+    }
+
+    private fun handleMemberExpression(node: PowerShellNode): Expression {
+        val baseNode = node.children!![0]
+        val member = node.children!![1]
+        val type = baseNode.code?.let { TypeParser.createFrom(it, false) }
+        val base =
+            NodeBuilder.newDeclaredReferenceExpression(
+                baseNode.code,
+                type ?: UnknownType.getUnknownType(),
+                baseNode.code
+            )
+        base.location = this.lang.getLocationFromRawNode(baseNode)
+
+        return NodeBuilder.newMemberExpression(
+            base,
+            type ?: UnknownType.getUnknownType(),
+            member.code,
+            ".",
+            node.code
+        )
     }
 }
