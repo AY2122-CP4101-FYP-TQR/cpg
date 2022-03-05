@@ -32,6 +32,7 @@ import de.fraunhofer.aisec.cpg.graph.declarations.FunctionDeclaration
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.*
 import de.fraunhofer.aisec.cpg.graph.types.TypeParser
 import de.fraunhofer.aisec.cpg.graph.types.UnknownType
+import kotlin.math.exp
 
 @ExperimentalPowerShell
 public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
@@ -50,6 +51,7 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
             "ScriptBlockExpressionAst" -> return handleWrapperExpression(node)
             "PipelineAst" -> return handlePipelineExpression(node)
             "ScriptBlockAst" -> return handleScriptBlock(node)
+            "SubExpressionAst" -> return handleScriptBlock(node)
 
             // AST Parents passed in to handle children
             "CommandAst" -> return handleCommand(node)
@@ -75,6 +77,7 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
             "InvokeMemberExpressionAst" -> return handleMemberCallExpression(node)
             "MemberExpressionAst" -> return handleMemberExpression(node)
             "TypeExpressionAst" -> return handleTypeExpression(node)
+            "ExpandableStringExpressionAst" -> return handleExpandableStringExpression(node)
         }
         log.warn("EXPRESSION: Not handled situations: ${node.type}")
         return Expression()
@@ -89,7 +92,7 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
             compoundExprStmt.statement = this.lang.statementHandler.handle(node.children!![0])
         } else if (node.children!!.size > 1) {
             // TODO add tagging of each statement perhaps with begin, process, end NamedBlockAst
-            // blocks
+            //   blocks
             val compoundStmt = NodeBuilder.newCompoundStatement(node.code)
             this.lang.scopeManager.enterScope(compoundStmt)
             for (child in node.children!!) {
@@ -305,7 +308,6 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
                 ) {
                     val paramValue = this.handle(paramsList[index + 1])
                     doneList.add(index + 1)
-                    println("DONE: ${param.code}")
                     paramValue.argumentIndex = paramsMap[paramName] ?: ((index + 1) / 2)
                     paramValue.code = param.code + " " + paramValue.code
                     functionCall.addArgument(paramValue)
@@ -397,5 +399,13 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
     //  then this needs to be the class caller node and must be handled.
     private fun handleTypeExpression(node: PowerShellNode): Expression {
         return handleDeclaredReferenceExpression(node)
+    }
+
+    private fun handleExpandableStringExpression(node: PowerShellNode): Expression {
+        val expandExpr = NodeBuilder.newExpressionList(node.code)
+        for (expr in node.children!!) {
+            expandExpr.addExpression(this.handle(expr))
+        }
+        return expandExpr
     }
 }

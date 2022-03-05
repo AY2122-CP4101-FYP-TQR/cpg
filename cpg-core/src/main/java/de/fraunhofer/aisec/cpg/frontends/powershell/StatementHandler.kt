@@ -54,7 +54,10 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
             "DoWhileStatementAst" -> return handleDoWhileStmt(node)
             "DoUntilStatementAst" -> return handleDoUntilStmt(node)
             "ForEachStatementAst" -> return handleForEachStmt(node)
+            "TryStatementAst" -> return handleTryStmt(node)
             "StatementBlockAst" -> return handleStatementBlock(node)
+            "BreakStatementAst" -> return handleBreakStmt(node)
+            "ContinueStatementAst" -> return handleContinueStmt(node)
             "CommandAst" -> return handleExpressionStmt(node)
             "CommandExpressionAst" -> return handleExpressionStmt(node)
         }
@@ -172,6 +175,9 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
     }
 
     private fun handleStatementBlock(node: PowerShellNode): Statement {
+        if (node.children.isNullOrEmpty()) {
+            return Statement()
+        }
         if (node.children!!.size > 1) {
             val compoundStmt = NodeBuilder.newCompoundStatement(node.code)
             this.lang.scopeManager.enterScope(compoundStmt)
@@ -182,6 +188,7 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
                 }
             }
             this.lang.scopeManager.leaveScope(compoundStmt)
+            return compoundStmt
         }
         return handle(node.children!![0])
     }
@@ -310,5 +317,64 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
         }
         this.lang.scopeManager.leaveScope(compoundStmt)
         return compoundStmt
+    }
+
+    private fun handleTryStmt(node: PowerShellNode): Statement {
+        val tryStatement = NodeBuilder.newTryStatement(node.code)
+        lang.scopeManager.enterScope(tryStatement)
+        val statement = handle(node.children!![0]) as CompoundStatement?
+        val catchClauses = emptyList<CatchClause>().toMutableList()
+        var finalStatement: CompoundStatement? = null
+
+        val children = node.children!!.subList(1, (node.children!!.size))
+        for (child in children) {
+            if (child.type != "CatchClauseAst") {
+                finalStatement = handle(child) as CompoundStatement
+                break
+            }
+            val catchClause = this.handleCatchClause(child)
+            catchClauses.add(catchClause)
+        }
+
+        tryStatement.tryBlock = statement
+        tryStatement.catchClauses = catchClauses
+        if (finalStatement != null) {
+            tryStatement.finallyBlock = finalStatement
+        }
+        lang.scopeManager.leaveScope(tryStatement)
+        return tryStatement
+    }
+
+    private fun handleCatchClause(node: PowerShellNode): CatchClause {
+        val catchClause = NodeBuilder.newCatchClause(node.code)
+        lang.scopeManager.enterScope(catchClause)
+
+        val children = node.children!!.subList(0, (node.children!!.size - 1))
+        var code = ""
+        for (child in children) {
+            code += child.code
+            code += " "
+        }
+
+        // This is not the correct way to do it but currently the CPG library only
+        //  supports CPP style of Try-Catch Statement for Catch
+        val param =
+            NodeBuilder.newVariableDeclaration(code, UnknownType.getUnknownType(), code, false)
+        catchClause.setParameter(param)
+        val body = this.handle(node.children!!.last())
+        if (body is CompoundStatement) {
+            catchClause.body = body
+        }
+
+        lang.scopeManager.leaveScope(catchClause)
+        return catchClause
+    }
+
+    private fun handleBreakStmt(node: PowerShellNode): Statement {
+        return NodeBuilder.newBreakStatement(node.code)
+    }
+
+    private fun handleContinueStmt(node: PowerShellNode): Statement {
+        return NodeBuilder.newContinueStatement(node.code)
     }
 }
