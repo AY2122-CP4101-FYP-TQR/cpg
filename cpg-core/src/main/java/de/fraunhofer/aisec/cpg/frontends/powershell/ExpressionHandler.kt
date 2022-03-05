@@ -74,6 +74,7 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
             "ConvertExpressionAst" -> return handleConvertExpression(node)
             "InvokeMemberExpressionAst" -> return handleMemberCallExpression(node)
             "MemberExpressionAst" -> return handleMemberExpression(node)
+            "TypeExpressionAst" -> return handleTypeExpression(node)
         }
         log.warn("EXPRESSION: Not handled situations: ${node.type}")
         return Expression()
@@ -359,7 +360,7 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
                 node.code
             )
         if (node.children!!.size > 2) {
-            params = node.children!!.subList(1, (node.children!!.size))
+            params = node.children!!.subList(2, (node.children!!.size))
             for ((index, param) in params.withIndex()) {
                 val arg = this.handle(param)
                 arg.argumentIndex = index
@@ -388,5 +389,13 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
             ".",
             node.code
         )
+    }
+
+    // This should not be used normally to handle TypeExpression since most TypeExpressionAst
+    //  do not do anything except state the type.
+    //  However, in the off chance they typeCast via MemberExpression (aka using [System.Convert])
+    //  then this needs to be the class caller node and must be handled.
+    private fun handleTypeExpression(node: PowerShellNode): Expression {
+        return handleDeclaredReferenceExpression(node)
     }
 }
