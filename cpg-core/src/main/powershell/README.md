@@ -19,13 +19,14 @@ The features implemented are able to handle most simple cases and may have diffi
 - [x] Pipeline (Limited functionality)
 - [x] MemberCall Invocation 
   - E.g. "a".Invoke()
+- [x] Try and Catch 
+- [x] Break and Continue
 
 ### ToDo
 - [ ] Improve Pipeline
   - Linking one pipe's output to another's input.
   - Able more complex pipelines
-- [ ] Try and Catch 
-- [ ] Break and Continue
+
 
 ### Areas identified that are not Implemented
 This list contains features identified that are not implemented due to resource constraints like time.
