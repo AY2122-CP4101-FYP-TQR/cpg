@@ -24,6 +24,11 @@ function printAst($id, $Indent = 0)
     } else {
       $code = $code
     }
+    if ($code -match (".*\\.*")) {
+      $code = $code -replace "\\","\\"
+    } else {
+      $code = $code
+    }
 
     $output += "{0} {{`"type`": `"{1}`", `"code`": `"{2}`"" -f $space, $_.GetType().Name, $code
     if ($null -ne $_.name) {
@@ -37,6 +42,10 @@ function printAst($id, $Indent = 0)
     }
     if ($null -ne $_.TokenKind) {
       $output += ",`"unaryType`": `"{0}`"" -f $_.TokenKind
+    }
+
+    if ($_.GetType().Name -like "ForStatementAst") {
+      $output += ", `"forLoop`": {{`"init`": `"{0}`", `"iterator`": `"{1}`", `"condition`": `"{2}`", `"body`": `"{3}`" }} " -f ($null -ne $_.Initializer), ($null -ne $_.Iterator), ($null -ne $_.Condition), ($null -ne $_.Body)
     }
 
     $output += ", `"location`": {{`"file`": `"{0}`", `"startLine`": `"{1}`", `"endLine`": `"{2}`", `"startCol`": `"{3}`", `"endCol`": `"{4}`" }}" -f $program, $_.Extent.StartLineNumber, $_.Extent.EndLineNumber, $_.Extent.StartColumnNumber, $_.Extent.EndColumnNumber

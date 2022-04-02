@@ -45,6 +45,8 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
             "FunctionDefinitionAst" -> return handleFunctionDeclaration(node)
             "AssignmentStatementAst" -> return handleVariableAssign(node)
             "VariableExpressionAst" -> return handleVariableDeclaration(node)
+            "MemberExpressionAst" -> return handleNestedVariable(node)
+            "ConvertExpressionAst" -> return handleNestedVariable(node)
         }
         return Declaration()
     }
@@ -129,36 +131,35 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
     // This function handles declaration of ONE variable.
     // LHS is variable, RHS can be anything
     private fun handleVariableAssign(node: PowerShellNode): Declaration {
-        val lhsNode = this.lang.getFirstChildNodeNamed("VariableExpressionAst", node.children!![0])
-        val rhsNode = node.children!![1]
-        if (lhsNode == null) { // Fatalistic Error
-            log.error(
-                "Unable to find firstChild named \"VariableExpressionAst\" under ${node.type}"
-            )
-            return Declaration()
+        // val varNode = this.lang.getFirstChildNodeNamed("VariableExpressionAst",
+        // node.children!![0])
+        val varNode = node.children!![0]
+        val variable = this.handle(varNode) as VariableDeclaration
+        if (node.children!!.size == 2) {
+            val valueNode = node.children!![1]
+            variable.initializer = this.lang.expressionHandler.handle(valueNode)
         }
-        val lhsName = this.lang.getIdentifierName(lhsNode)
-        val lhsTypeNode = this.lang.getFirstChildNodeNamed("ConvertExpressionAst", node)
-        val lhsType =
-            lhsTypeNode?.type?.let { TypeParser.createFrom(it, false) }
-                ?: lhsNode.codeType?.let { TypeParser.createFrom(it, false) }
-                    ?: node.codeType?.let { TypeParser.createFrom(it, false) }
-
-        val variable =
-            NodeBuilder.newVariableDeclaration(
-                lhsName,
-                lhsType ?: UnknownType.getUnknownType(),
-                this.lang.getCodeFromRawNode(lhsNode),
-                false
-            )
-        variable.location = this.lang.getLocationFromRawNode(lhsNode)
-        variable.initializer = this.lang.expressionHandler.handle(rhsNode)
         return variable
     }
 
-    private fun handleVariableDeclaration(node: PowerShellNode): Declaration {
-        val name = node.name
-        val type = node.codeType?.let { TypeParser.createFrom(node.type, false) }
+    private fun handleVariableDeclaration(node: PowerShellNode): VariableDeclaration {
+        val name = node.name ?: node.code
+        val type = node.codeType?.let { TypeParser.createFrom(it, false) }
+        val variable =
+            NodeBuilder.newVariableDeclaration(
+                name,
+                type ?: UnknownType.getUnknownType(),
+                this.lang.getCodeFromRawNode(node),
+                false
+            )
+        variable.location = this.lang.getLocationFromRawNode(node)
+        return variable
+    }
+
+    private fun handleNestedVariable(node: PowerShellNode): VariableDeclaration {
+        val staticVar = node.children!![1]
+        val name = staticVar.name ?: staticVar.code
+        val type = node.codeType?.let { TypeParser.createFrom(it, false) }
         val variable =
             NodeBuilder.newVariableDeclaration(
                 name,
