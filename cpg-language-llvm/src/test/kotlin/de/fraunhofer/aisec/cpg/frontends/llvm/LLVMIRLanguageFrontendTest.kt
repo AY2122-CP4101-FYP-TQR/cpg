@@ -52,6 +52,39 @@ class LLVMIRLanguageFrontendTest {
     }
 
     @Test
+    fun testVectorPoison() {
+        val topLevel = Path.of("src", "test", "resources", "llvm")
+        val tu =
+            TestUtils.analyzeAndGetFirstTU(
+                listOf(topLevel.resolve("vector_poison.ll").toFile()),
+                topLevel,
+                true
+            ) {
+                it.registerLanguage(
+                    LLVMIRLanguageFrontend::class.java,
+                    LLVMIRLanguageFrontend.LLVM_EXTENSIONS
+                )
+            }
+
+        assertEquals(1, tu.declarations.size)
+
+        val main = tu.byNameOrNull<FunctionDeclaration>("main")
+        assertNotNull(main)
+        assertEquals("i32", main.type.name)
+
+        val xVector =
+            (main.bodyOrNull<CompoundStatement>(0)?.statements?.get(0) as? DeclarationStatement)
+                ?.singleDeclaration as?
+                VariableDeclaration
+        val xInit = xVector?.initializer as? InitializerListExpression
+        assertNotNull(xInit)
+        assertEquals("poison", (xInit.initializers[0] as? DeclaredReferenceExpression)?.name)
+        assertEquals(0L, (xInit.initializers[1] as? Literal<*>)?.value)
+        assertEquals(0L, (xInit.initializers[2] as? Literal<*>)?.value)
+        assertEquals(0L, (xInit.initializers[3] as? Literal<*>)?.value)
+    }
+
+    @Test
     fun testIntegerOps() {
         val topLevel = Path.of("src", "test", "resources", "llvm")
         val tu =
@@ -722,6 +755,24 @@ class LLVMIRLanguageFrontendTest {
     }
 
     @Test
+    fun testLoopPhi() {
+        val topLevel = Path.of("src", "test", "resources", "llvm")
+        val tu =
+            TestUtils.analyzeAndGetFirstTU(
+                listOf(topLevel.resolve("loopPhi.ll").toFile()),
+                topLevel,
+                true
+            ) {
+                it.registerLanguage(
+                    LLVMIRLanguageFrontend::class.java,
+                    LLVMIRLanguageFrontend.LLVM_EXTENSIONS
+                )
+            }
+        val main = tu.byNameOrNull<FunctionDeclaration>("loopPhi")
+        assertNotNull(main)
+    }
+
+    @Test
     fun testPhi() {
         val topLevel = Path.of("src", "test", "resources", "llvm")
         val tu =
@@ -951,7 +1002,10 @@ class LLVMIRLanguageFrontendTest {
         val funcF = tu.byNameOrNull<FunctionDeclaration>("f")
         assertNotNull(funcF)
 
-        val tryStatement = funcF.bodyOrNull<TryStatement>(0)
+        val tryStatement =
+            (funcF.bodyOrNull<LabelStatement>(0)?.subStatement as? CompoundStatement)?.statements
+                ?.firstOrNull { s -> s is TryStatement } as?
+                TryStatement
         assertNotNull(tryStatement)
         assertEquals(2, tryStatement.tryBlock.statements.size)
         assertEquals(

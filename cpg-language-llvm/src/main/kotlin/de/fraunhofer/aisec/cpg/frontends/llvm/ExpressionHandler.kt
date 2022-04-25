@@ -26,6 +26,7 @@
 package de.fraunhofer.aisec.cpg.frontends.llvm
 
 import de.fraunhofer.aisec.cpg.frontends.Handler
+import de.fraunhofer.aisec.cpg.graph.NodeBuilder
 import de.fraunhofer.aisec.cpg.graph.NodeBuilder.newArraySubscriptionExpression
 import de.fraunhofer.aisec.cpg.graph.NodeBuilder.newCastExpression
 import de.fraunhofer.aisec.cpg.graph.NodeBuilder.newConditionalExpression
@@ -35,6 +36,7 @@ import de.fraunhofer.aisec.cpg.graph.NodeBuilder.newInitializerListExpression
 import de.fraunhofer.aisec.cpg.graph.NodeBuilder.newLiteral
 import de.fraunhofer.aisec.cpg.graph.NodeBuilder.newMemberExpression
 import de.fraunhofer.aisec.cpg.graph.NodeBuilder.newUnaryOperator
+import de.fraunhofer.aisec.cpg.graph.ProblemNode
 import de.fraunhofer.aisec.cpg.graph.declarations.FieldDeclaration
 import de.fraunhofer.aisec.cpg.graph.declarations.RecordDeclaration
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.*
@@ -53,7 +55,7 @@ import org.bytedeco.llvm.global.LLVM.*
  * [Expression]. Operands are basically arguments to an instruction.
  */
 class ExpressionHandler(lang: LLVMIRLanguageFrontend) :
-    Handler<Expression, LLVMValueRef, LLVMIRLanguageFrontend>(::Expression, lang) {
+    Handler<Expression, LLVMValueRef, LLVMIRLanguageFrontend>(::ProblemExpression, lang) {
     init {
         map.put(LLVMValueRef::class.java) { handleValue(it) }
     }
@@ -69,6 +71,9 @@ class ExpressionHandler(lang: LLVMIRLanguageFrontend) :
             LLVMConstantIntValueKind -> handleConstantInt(value)
             LLVMConstantFPValueKind -> handleConstantFP(value)
             LLVMConstantPointerNullValueKind -> handleNullPointer(value)
+            LLVMPoisonValueValueKind -> {
+                newDeclaredReferenceExpression("poison", lang.typeOf(value), "poison")
+            }
             LLVMConstantTokenNoneValueKind ->
                 newLiteral(null, UnknownType.getUnknownType(), lang.getCodeFromRawNode(value))
             LLVMUndefValueValueKind ->
@@ -84,40 +89,54 @@ class ExpressionHandler(lang: LLVMIRLanguageFrontend) :
             // we are only interested in its name and type.
             LLVMInstructionValueKind -> handleReference(value)
             LLVMFunctionValueKind -> handleFunction(value)
+            LLVMGlobalAliasValueKind -> {
+                val name = lang.getNameOf(value).first
+                newDeclaredReferenceExpression(
+                    name,
+                    lang.typeOf(value),
+                    lang.getCodeFromRawNode(value)
+                )
+            }
+            LLVMMetadataAsValueValueKind, LLVMInlineAsmValueKind -> {
+                // TODO
+                return NodeBuilder.newProblemExpression(
+                    "Metadata or ASM value kind not supported yet",
+                    ProblemNode.ProblemType.TRANSLATION,
+                    lang.getCodeFromRawNode(value)
+                )
+            }
             else -> {
                 log.info(
                     "Not handling value kind {} in handleValue yet. Falling back to the legacy way. Please change",
                     kind
                 )
                 val cpgType = lang.typeOf(value)
-                val operandName: String
-                cpgType.typeName
 
                 // old stuff from getOperandValue, needs to be refactored to the when above
                 // TODO also move the other stuff to the expression handler
-                if (LLVMIsConstant(value) == 1) {
-                    if (LLVMIsAGlobalAlias(value) != null || LLVMIsGlobalConstant(value) == 1) {
-                        val aliasee = LLVMAliasGetAliasee(value)
-                        operandName =
+                if (LLVMIsConstant(value) != 1) {
+                    val operandName: String =
+                        if (LLVMIsAGlobalAlias(value) != null || LLVMIsGlobalConstant(value) == 1) {
+                            val aliasee = LLVMAliasGetAliasee(value)
                             LLVMPrintValueToString(aliasee)
                                 .string // Already resolve the aliasee of the constant
-                        return newLiteral(operandName, cpgType, operandName)
-                    } else {
-                        // TODO This does not return the actual constant but only a string
-                        // representation
-                        return newLiteral(
-                            LLVMPrintValueToString(value).toString(),
-                            cpgType,
-                            LLVMPrintValueToString(value).toString()
-                        )
-                    }
+                        } else {
+                            // TODO This does not return the actual constant but only a string
+                            // representation
+                            LLVMPrintValueToString(value).string
+                        }
+                    return newLiteral(operandName, cpgType, operandName)
                 } else if (LLVMIsUndef(value) == 1) {
                     return newDeclaredReferenceExpression("undef", cpgType, "undef")
                 } else if (LLVMIsPoison(value) == 1) {
                     return newDeclaredReferenceExpression("poison", cpgType, "poison")
                 } else {
-                    log.error("Unknown expression")
-                    return Expression()
+                    log.error("Unknown expression {}", kind)
+                    return NodeBuilder.newProblemExpression(
+                        "Unknown expression ${kind}",
+                        ProblemNode.ProblemType.TRANSLATION,
+                        lang.getCodeFromRawNode(value)
+                    )
                 }
             }
         }
@@ -220,18 +239,38 @@ class ExpressionHandler(lang: LLVMIRLanguageFrontend) :
                 LLVMAddrSpaceCast -> handleCastInstruction(value)
                 LLVMAdd, LLVMFAdd ->
                     lang.statementHandler.handleBinaryOperator(value, "+", false) as? Expression
-                        ?: Expression()
+                        ?: NodeBuilder.newProblemExpression(
+                            "Wrong type of constant binary operation +",
+                            ProblemNode.ProblemType.TRANSLATION,
+                            lang.getCodeFromRawNode(value)
+                        )
                 LLVMSub, LLVMFSub ->
                     lang.statementHandler.handleBinaryOperator(value, "-", false) as? Expression
-                        ?: Expression()
+                        ?: NodeBuilder.newProblemExpression(
+                            "Wrong type of constant binary operation -",
+                            ProblemNode.ProblemType.TRANSLATION,
+                            lang.getCodeFromRawNode(value)
+                        )
                 LLVMAShr ->
                     lang.statementHandler.handleBinaryOperator(value, ">>", false) as? Expression
-                        ?: Expression()
+                        ?: NodeBuilder.newProblemExpression(
+                            "Wrong type of constant binary operation >>",
+                            ProblemNode.ProblemType.TRANSLATION,
+                            lang.getCodeFromRawNode(value)
+                        )
                 LLVMICmp -> lang.statementHandler.handleIntegerComparison(value) as? Expression
-                        ?: Expression()
+                        ?: NodeBuilder.newProblemExpression(
+                            "Wrong type of constant comparison",
+                            ProblemNode.ProblemType.TRANSLATION,
+                            lang.getCodeFromRawNode(value)
+                        )
                 else -> {
                     log.error("Not handling constant expression of opcode {} yet", kind)
-                    Expression()
+                    NodeBuilder.newProblemExpression(
+                        "Not handling constant expression of opcode ${kind} yet",
+                        ProblemNode.ProblemType.TRANSLATION,
+                        lang.getCodeFromRawNode(value)
+                    )
                 }
             }
 
@@ -290,7 +329,14 @@ class ExpressionHandler(lang: LLVMIRLanguageFrontend) :
         val initializers = mutableListOf<Expression>()
 
         for (i in 0 until length) {
-            val expr = handle(LLVMGetElementAsConstant(valueRef, i)) as Expression
+            val expr =
+                if (LLVMGetValueKind(valueRef) == LLVMConstantVectorValueKind) {
+                    // This type of vectors needs to access the elements via LLVMGetOperand(). Not
+                    // sure why but the other method crashes.
+                    handle(LLVMGetOperand(valueRef, i)) as Expression
+                } else {
+                    handle(LLVMGetElementAsConstant(valueRef, i)) as Expression
+                }
 
             initializers += expr
         }
@@ -313,6 +359,7 @@ class ExpressionHandler(lang: LLVMIRLanguageFrontend) :
             val expr: ConstructExpression = newConstructExpression(code)
             // map the construct expression to the record declaration of the type
             expr.instantiates = (type as? ObjectType)?.recordDeclaration
+            if (expr.instantiates == null) return expr
 
             // loop through the operands
             for (field in (expr.instantiates as RecordDeclaration).fields) {
@@ -337,6 +384,7 @@ class ExpressionHandler(lang: LLVMIRLanguageFrontend) :
             val expr: ConstructExpression = newConstructExpression(code)
             // map the construct expression to the record declaration of the type
             expr.instantiates = (type as? ObjectType)?.recordDeclaration
+            if (expr.instantiates == null) return expr
 
             // loop through the operands
             for (field in (expr.instantiates as RecordDeclaration).fields) {
@@ -392,11 +440,16 @@ class ExpressionHandler(lang: LLVMIRLanguageFrontend) :
         // the start
         var base = operand
 
-        var expr = Expression()
+        var expr: Expression =
+            NodeBuilder.newProblemExpression(
+                "Default node for getelementptr",
+                ProblemNode.ProblemType.TRANSLATION,
+                lang.getCodeFromRawNode(instr)
+            )
 
         // loop through all operands / indices
         for (idx: Int in loopStart until numOps) {
-            val index =
+            val index: Any =
                 if (isGetElementPtr) {
                     // the second argument is the base address that we start our chain from
                     operand = lang.getOperandValueAtIndex(instr, idx)
