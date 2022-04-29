@@ -142,20 +142,16 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
     }
 
     private fun handleLiteralExpression(node: PowerShellNode): Expression {
-        val typeStr =
-            when (node.type) {
-                "ConstantExpressionAst" -> "int"
-                "StringConstantExpressionAst" -> "str"
-                // should not fall into this? if it does, add them
-                else -> "unknown"
+        val typeStr = node.convertPSCodeType()
+        val tpe =
+            if (typeStr != "") {
+                TypeParser.createFrom(typeStr, false)
+            } else {
+                UnknownType.getUnknownType()
             }
-        if (typeStr == "unknown")
-            log.warn("Unidentified type found for literal: type is actually ${node.type}")
-
-        val type = TypeParser.createFrom(typeStr, false)
         val value = node.code
 
-        val lit = NodeBuilder.newLiteral(value, type, node.code)
+        val lit = NodeBuilder.newLiteral(value, tpe, node.code)
         lit.name = node.code ?: node.name ?: ""
         lit.location = this.lang.getLocationFromRawNode(node)
         return lit
@@ -315,6 +311,11 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
             } else if (param.type == "ScriptBlockExpressionAst") {
                 log.warn("HI")
                 functionCall.addArgument(this.lang.expressionHandler.handle(param))
+            } else if (param.type == "InvokeMemberExpressionAst") {
+                for (child in paramsList) {
+                    val paramValue = this.handle(param)
+                    functionCall.addArgument(paramValue)
+                }
             } else {
                 // The middle AST structures do not contain information that are essential
                 // Plus they can intertwine between ArrayLiteralAst and ParenExpressionAst,

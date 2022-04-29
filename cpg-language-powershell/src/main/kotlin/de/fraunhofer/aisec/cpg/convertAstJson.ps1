@@ -24,6 +24,11 @@ function printAst($id, $Indent = 0)
     } else {
       $code = $code
     }
+    if ($code -match (".*\t.*")) {
+      $code = $code -replace "\t",""
+    } else {
+      $code = $code
+    }
     if ($code -match (".*\\.*")) {
       $code = $code -replace "\\","\\"
     } else {
@@ -66,6 +71,9 @@ function printAst($id, $Indent = 0)
 }
 
 $program = $args[0]
+if ($program -eq $null) {
+  exit(-1)
+}
 $code = Get-Content -Raw -Path $program
 
 #$counter = 0
@@ -91,4 +99,4 @@ $code.Ast.FindAll( { $true }, $true) |
 
 #$hierarchy
 # start visualization with ast root object:
-printAst -id $code.Ast.GetHashCode() #| ConvertTo-Json | ConvertFrom-Json
+printAst -id $code.Ast.GetHashCode()

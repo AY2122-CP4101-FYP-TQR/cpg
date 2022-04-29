@@ -243,5 +243,10 @@ subprojects {
             target("src/main/golang/**/*.go")
             licenseHeader(headerWithStars, "package").yearSeparator(" - ")
         }
+
+        format("powershell") {
+            target("src/main/powershell/**/*.ps1")
+            licenseHeader(headerWithStars, "package").yearSeparator(" - ")
+        }
     }
 }

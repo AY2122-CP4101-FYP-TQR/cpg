@@ -126,22 +126,46 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
         return paramList
     }
 
-    // Does not handle multiple variable declaration
-    // e.g. $a, $b, $b = 2, 4, 5
-    // This function handles declaration of ONE variable.
-    // LHS is variable, RHS can be anything
+    /**
+     * Handles single variable declaration where LHS is a VariableDeclaration while RHS can be anything
+     * RHS is handled first to infer type for LHS.
+     * However if RHS type is "UNKNOWN", LHS type is inferred from itself.
+     */
     private fun handleVariableAssign(node: PowerShellNode): Declaration {
-        // val varNode = this.lang.getFirstChildNodeNamed("VariableExpressionAst",
-        // node.children!![0])
         val varNode = node.children!![0]
-        val variable = this.handle(varNode) as VariableDeclaration
-        if (node.children!!.size == 2) {
-            val valueNode = node.children!![1]
-            variable.initializer = this.lang.expressionHandler.handle(valueNode)
-        }
+        val valueNode = node.children!![1]
+
+        val rhs = this.lang.expressionHandler.handle(valueNode)
+        val tpe = rhs.type.name
+        val variable: VariableDeclaration =
+            if (tpe == "UNKNOWN") {
+                this.handle(varNode) as VariableDeclaration
+            } else {
+                handleVariableDeclaration(varNode, tpe)
+            }
+        variable.initializer = rhs
         return variable
     }
 
+    /**
+     * Creation of VariableDeclaration based on type inferred from LHS.
+     */
+    private fun handleVariableDeclaration(node: PowerShellNode, tpe: String): VariableDeclaration {
+        val name = node.name ?: node.code
+        val variable =
+            NodeBuilder.newVariableDeclaration(
+                name,
+                TypeParser.createFrom(tpe, false),
+                this.lang.getCodeFromRawNode(node),
+                false
+            )
+        variable.location = this.lang.getLocationFromRawNode(node)
+        return variable
+    }
+
+    /**
+     * Creation of VariableDeclaration based on its own type.
+     */
     private fun handleVariableDeclaration(node: PowerShellNode): VariableDeclaration {
         val name = node.name ?: node.code
         val type = node.codeType?.let { TypeParser.createFrom(it, false) }
