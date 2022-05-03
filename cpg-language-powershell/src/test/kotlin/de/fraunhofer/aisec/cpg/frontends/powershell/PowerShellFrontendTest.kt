@@ -28,6 +28,7 @@ package de.fraunhofer.aisec.cpg.frontends.powershell
 import de.fraunhofer.aisec.cpg.BaseTest
 import de.fraunhofer.aisec.cpg.ExperimentalPowerShell
 import de.fraunhofer.aisec.cpg.TestUtils
+import de.fraunhofer.aisec.cpg.graph.declarations.FunctionDeclaration
 import de.fraunhofer.aisec.cpg.graph.declarations.NamespaceDeclaration
 import de.fraunhofer.aisec.cpg.graph.declarations.VariableDeclaration
 import de.fraunhofer.aisec.cpg.graph.types.TypeParser
@@ -85,5 +86,33 @@ class PowerShellFrontendTest : BaseTest() {
         assertNotNull(a)
         assertEquals("\$a", a.name)
         assertEquals(TypeParser.createFrom("Object", false), a.type)
+    }
+
+    @Test
+    fun testFunctionDeclaration() {
+        val topLevel = Path.of("src", "test", "resources", "powershell")
+        val tu =
+            TestUtils.analyzeAndGetFirstTU(
+                listOf(topLevel.resolve("function.ps1").toFile()),
+                topLevel,
+                true
+            ) {
+                it.registerLanguage(
+                    PowerShellLanguageFrontend::class.java,
+                    PowerShellLanguageFrontend.POWERSHELL_EXTENSIONS
+                )
+            }
+
+        assertNotNull(tu)
+        val p =
+            tu.getDeclarationsByName("function", NamespaceDeclaration::class.java).iterator().next()
+        assertNotNull(p)
+
+        val foo = p.declarations.first() as? FunctionDeclaration
+        assertNotNull(foo)
+
+        val bar = p.declarations[1] as? FunctionDeclaration
+        assertNotNull(bar)
+        assertEquals(3, bar.parameters.size)
     }
 }

@@ -42,80 +42,58 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
     private fun handleNode(node: PowerShellNode): Declaration {
         println("DECLARATION:  ${node.type}")
         when (node.type) {
-            "FunctionDefinitionAst" -> return handleFunctionDeclaration(node)
             "AssignmentStatementAst" -> return handleVariableAssign(node)
+            "FunctionDefinitionAst" -> return handleFunctionDeclaration(node)
             "VariableExpressionAst" -> return handleVariableDeclaration(node)
+
             "MemberExpressionAst" -> return handleNestedVariable(node)
             "ConvertExpressionAst" -> return handleNestedVariable(node)
         }
         return Declaration()
     }
 
+    /**
+     * Handles function declaration and its parameters
+     * Currently only supports end-blocks.
+     */
     private fun handleFunctionDeclaration(node: PowerShellNode): FunctionDeclaration {
-        // children node here is ScriptBlockAst
-        if (node.children!!.size != 1)
-            log.error("FIX ME: functionDeclaration - more than 1 child in function.")
-        // TODO Find cases with more than 1 child?
-        val scriptBlock = node.children!![0]
-
-        /*  if one child then handle body
-         *  if more than one child then handle body + param
-         *  handling of body need to be able to handle function declaration too, add to stmt.
-         */
-        // One child is params+attributes, Another is body
-
-        var funcHeader: PowerShellNode? = null
-        var funcBody: PowerShellNode? = null
-        for (child in scriptBlock.children!!) {
-            if (child.type == "ParamBlockAst") {
-                funcHeader = child
-                // This assumption that the body is of this type seems reasonable and accurate as
-                // far as tested.
-                // Represents a begin, process, end or dynamicparam block of a scriptblock - {}
-            } else if (child.type == "NamedBlockAst") {
-                funcBody = child
-            }
-        }
+        val funcParam = node.function?.param
+        val funcBody = node.function?.body
 
         val name = node.name!!
         val funcDecl = NodeBuilder.newFunctionDeclaration(name, node.code)
         this.lang.scopeManager.enterScope(funcDecl)
-        // handle the function body
-        // PS function return type are rather complex - hard to determine.
-        // funcDecl.type = TypeParser.createFrom("string", false)
-        if (funcHeader != null) funcDecl.parameters = handleFuncParamDecl(funcHeader)
-        if (funcBody != null) funcDecl.body = this.lang.statementHandler.handle(funcBody)
+
+        if (funcParam != null) funcDecl.parameters = handleFuncParamDecl(funcParam, node)
+        if (funcBody != null) {
+            // Find the body node first then handle it
+            val funcBodyNode = this.lang.getFirstChildNodeNamed(funcBody, node)
+            funcDecl.body = this.lang.statementHandler.handle(funcBodyNode)
+        }
 
         this.lang.scopeManager.leaveScope(funcDecl)
         this.lang.scopeManager.addDeclaration(funcDecl)
-        // only in CPP they check for declarations of the same function;
-        // Perfectly legal to declare another function of the same name in PS, later one will take
-        // precedence
         return funcDecl
     }
 
-    // AST here should be ParamBlockAst
-    // Children can be AttributeAst - attribute for entire function
-    //              or ParameterAst - which are the parameters (only extract this)
-    // ParameterAst can have children too - to set type and attributes.
-    // Only the type is handled, attributes are currently ignored.
-    private fun handleFuncParamDecl(node: PowerShellNode): List<ParamVariableDeclaration> {
+    /**
+     * Handles function's parameters. If type is not declared, treated as type Object.
+     */
+    private fun handleFuncParamDecl(
+        params: List<String>,
+        node: PowerShellNode
+    ): List<ParamVariableDeclaration> {
         val paramList: MutableList<ParamVariableDeclaration> = mutableListOf()
-        // iterate to the ParamBlockAst which will have children, each containing param info.
         var counter = 0
-        for (paramNode in node.children!!) {
-            if (paramNode.type != "ParameterAst") continue
-            // if there's a way to know the type then change this (PS not strictly typed)
-            // val typeNode = this.lang.getFirstChildNodeNamed("TypeConstraintAst", paramNode)
-            val type =
-            // typeNode?.codeType?.let { TypeParser.createFrom(it, false) } ?:
-            paramNode.codeType?.let { TypeParser.createFrom(it, false) }
+        for (param in params) {
+            val paramNode = this.lang.getFirstChildNodeNamed(param, node)
+            val type = node.function?.type?.get(counter)
             val paramVariableDecl =
                 NodeBuilder.newMethodParameterIn(
-                    paramNode.name,
-                    type ?: UnknownType.getUnknownType(),
+                    paramNode?.name,
+                    type?.let { TypeParser.createFrom(it, false) },
                     false,
-                    paramNode.code
+                    paramNode?.code
                 )
             paramVariableDecl.location = this.lang.getLocationFromRawNode(paramNode)
             paramVariableDecl.argumentIndex = counter
@@ -127,9 +105,9 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
     }
 
     /**
-     * Handles single variable declaration where LHS is a VariableDeclaration while RHS can be anything
-     * RHS is handled first to infer type for LHS.
-     * However if RHS type is "UNKNOWN", LHS type is inferred from itself.
+     * Handles single variable declaration where LHS is a VariableDeclaration while RHS can be
+     * anything RHS is handled first to infer type for LHS. However, if RHS type is "UNKNOWN", LHS
+     * type is inferred from itself.
      */
     private fun handleVariableAssign(node: PowerShellNode): Declaration {
         val varNode = node.children!![0]
@@ -147,9 +125,7 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
         return variable
     }
 
-    /**
-     * Creation of VariableDeclaration based on type inferred from LHS.
-     */
+    /** Creation of VariableDeclaration based on type inferred from LHS. */
     private fun handleVariableDeclaration(node: PowerShellNode, tpe: String): VariableDeclaration {
         val name = node.name ?: node.code
         val variable =
@@ -163,9 +139,7 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
         return variable
     }
 
-    /**
-     * Creation of VariableDeclaration based on its own type.
-     */
+    /** Creation of VariableDeclaration based on its own type. */
     private fun handleVariableDeclaration(node: PowerShellNode): VariableDeclaration {
         val name = node.name ?: node.code
         val type = node.codeType?.let { TypeParser.createFrom(it, false) }

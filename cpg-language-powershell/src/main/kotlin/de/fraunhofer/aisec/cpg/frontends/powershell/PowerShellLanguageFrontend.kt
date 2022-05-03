@@ -98,24 +98,24 @@ class PowerShellLanguageFrontend(
         return tu
     }
 
-    /* DFS type of searching
-    fun getFirstChildNodeNamed(targetType: String, node: PowerShellNode): PowerShellNode? {
-        if (node.type == targetType) return node
+    // DFS type of searching
+    fun getFirstChildNodeNamed(targetCode: String, node: PowerShellNode): PowerShellNode? {
+        if (node.code == targetCode) return node
 
         if (node.children != null) {
             for (child in node.children!!) {
-                if (child.type == targetType) {
+                if (child.code == targetCode) {
                     return child
                 } else {
-                    val ret = getFirstChildNodeNamed(targetType, child)
+                    val ret = getFirstChildNodeNamed(targetCode, child)
                     if (ret != null) {
-                        if (ret.type == targetType) return ret
+                        if (ret.code == targetCode) return ret
                     }
                 }
             }
         }
         return null
-    }*/
+    }
 
     fun getAllLastChildren(
         node: PowerShellNode,
@@ -171,6 +171,8 @@ class Location(
 
 class ForLoop(var init: Boolean, var condition: Boolean, var body: Boolean, var iterator: Boolean)
 
+class Function(var param: List<String>, var type: List<String>, var body: String)
+
 class PowerShellNode(
     var type: String,
     var name: String?,
@@ -182,7 +184,8 @@ class PowerShellNode(
     // other details specific to certain AST
     var operator: String?,
     var unaryType: String?,
-    var forLoop: ForLoop?
+    var forLoop: ForLoop?,
+    var function: Function?
 ) {
     fun firstChild(type: String): PowerShellNode? {
         return this.children?.firstOrNull { it.type == type }
