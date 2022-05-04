@@ -35,6 +35,7 @@ import de.fraunhofer.aisec.cpg.graph.types.TypeParser
 import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 
@@ -119,7 +120,7 @@ class PowerShellFrontendTest : BaseTest() {
         assertNotNull(loo)
         assertEquals(2, loo.parameters.size)
 
-        var libCallExpression =
+        val libCallExpression =
             (loo.body as? CompoundStatement)?.statements?.get(0) as? CallExpression
         assertNotNull(libCallExpression)
         assertEquals("Write-Host", libCallExpression.name)
@@ -175,5 +176,57 @@ class PowerShellFrontendTest : BaseTest() {
 
         assertEquals("555", literal.value)
         assertEquals(TypeParser.createFrom("int", false), literal.type)
+    }
+
+    @Test
+    fun testIf() {
+        val topLevel = Path.of("src", "test", "resources", "powershell")
+        val tu =
+            TestUtils.analyzeAndGetFirstTU(
+                listOf(topLevel.resolve("if.ps1").toFile()),
+                topLevel,
+                true
+            ) {
+                it.registerLanguage(
+                    PowerShellLanguageFrontend::class.java,
+                    PowerShellLanguageFrontend.POWERSHELL_EXTENSIONS
+                )
+            }
+
+        assertNotNull(tu)
+
+        val p = tu.getDeclarationsByName("if", NamespaceDeclaration::class.java).iterator().next()
+
+        val `if` = p.statements[1] as? IfStatement
+        assertNotNull(`if`)
+
+        val ifThenStmt = (`if`.thenStatement as CompoundStatement).statements.first()
+        assertNotNull(ifThenStmt)
+        assertTrue(ifThenStmt is BinaryOperator)
+        assertEquals("5", ifThenStmt.rhs.name)
+        assertEquals("\$i", ifThenStmt.lhs.name)
+        assertEquals("Equals", ifThenStmt.operatorCode)
+
+        val elseif = (`if`.elseStatement as IfStatement)
+        assertNotNull(elseif)
+        val elseifCond = elseif.condition
+        assertTrue(elseifCond is BinaryOperator)
+        assertEquals("5", elseifCond.rhs.name)
+        assertEquals("\$i", elseifCond.lhs.name)
+        assertEquals("-lt", elseifCond.operatorCode)
+
+        val elseThenStmt = (elseif.thenStatement as CompoundStatement).statements.first()
+        assertNotNull(elseThenStmt)
+        assertTrue(elseThenStmt is BinaryOperator)
+        assertEquals("40", elseThenStmt.rhs.name)
+        assertEquals("\$i", elseThenStmt.lhs.name)
+        assertEquals("Equals", elseThenStmt.operatorCode)
+
+        val elseStmt = (elseif.elseStatement as CompoundStatement).statements.first()
+        assertNotNull(elseStmt)
+        assertTrue(elseStmt is BinaryOperator)
+        assertEquals("20", elseStmt.rhs.name)
+        assertEquals("\$i", elseStmt.lhs.name)
+        assertEquals("MinusEquals", elseStmt.operatorCode)
     }
 }

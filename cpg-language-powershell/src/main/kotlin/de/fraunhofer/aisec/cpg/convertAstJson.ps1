@@ -31,7 +31,11 @@ function printAst($id, $Indent = 0)
       $output += ",`"codeType`": `"{0}`"" -f $_.StaticType.Name
     }
     if ($null -ne $_.Operator) {
-      $output += ",`"operator`": `"{0}`"" -f $_.Operator
+      $op = $_.Operator.tostring()
+      if ($op[0] -eq "I") {
+        $op = $op -replace "I","-"
+      }
+      $output += ",`"operator`": `"{0}`"" -f $op
     }
     if ($null -ne $_.TokenKind) {
       $output += ",`"unaryType`": `"{0}`"" -f $_.TokenKind

@@ -292,8 +292,6 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
                 paramsMap[parameter.name] = parameter.argumentIndex
             }
         }
-        // can have mixed so need to handle them together
-
         val doneList = emptyList<Int>().toMutableList()
         val paramMarked = emptyList<Int>().toMutableList()
         val params = emptyList<Expression>().toMutableList()
