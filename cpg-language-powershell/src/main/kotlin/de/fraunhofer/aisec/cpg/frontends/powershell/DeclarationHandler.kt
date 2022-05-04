@@ -45,17 +45,13 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
             "AssignmentStatementAst" -> return handleVariableAssign(node)
             "FunctionDefinitionAst" -> return handleFunctionDeclaration(node)
             "VariableExpressionAst" -> return handleVariableDeclaration(node)
-
             "MemberExpressionAst" -> return handleNestedVariable(node)
             "ConvertExpressionAst" -> return handleNestedVariable(node)
         }
         return Declaration()
     }
 
-    /**
-     * Handles function declaration and its parameters
-     * Currently only supports end-blocks.
-     */
+    /** Handles function declaration and its parameters Currently only supports end-blocks. */
     private fun handleFunctionDeclaration(node: PowerShellNode): FunctionDeclaration {
         val funcParam = node.function?.param
         val funcBody = node.function?.body
@@ -67,7 +63,7 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
         if (funcParam != null) funcDecl.parameters = handleFuncParamDecl(funcParam, node)
         if (funcBody != null) {
             // Find the body node first then handle it
-            val funcBodyNode = this.lang.getFirstChildNodeNamed(funcBody, node)
+            val funcBodyNode = this.lang.getFirstChildNodeNamedViaCode(funcBody, node)
             funcDecl.body = this.lang.statementHandler.handle(funcBodyNode)
         }
 
@@ -76,9 +72,7 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
         return funcDecl
     }
 
-    /**
-     * Handles function's parameters. If type is not declared, treated as type Object.
-     */
+    /** Handles function's parameters. If type is not declared, treated as type Object. */
     private fun handleFuncParamDecl(
         params: List<String>,
         node: PowerShellNode
@@ -86,8 +80,8 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
         val paramList: MutableList<ParamVariableDeclaration> = mutableListOf()
         var counter = 0
         for (param in params) {
-            val paramNode = this.lang.getFirstChildNodeNamed(param, node)
-            val type = node.function?.type?.get(counter)
+            val paramNode = this.lang.getFirstChildNodeViaName(param, node)
+            val type = node.function?.type?.get(counter)?.let { this.lang.convertPSCodeType(it) }
             val paramVariableDecl =
                 NodeBuilder.newMethodParameterIn(
                     paramNode?.name,
@@ -114,9 +108,9 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
         val valueNode = node.children!![1]
 
         val rhs = this.lang.expressionHandler.handle(valueNode)
-        val tpe = rhs.type.name
+        val tpe = this.lang.convertPSCodeType(rhs.type.name)
         val variable: VariableDeclaration =
-            if (tpe == "UNKNOWN") {
+            if (tpe == "") {
                 this.handle(varNode) as VariableDeclaration
             } else {
                 handleVariableDeclaration(varNode, tpe)

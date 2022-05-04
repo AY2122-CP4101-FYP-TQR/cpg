@@ -86,7 +86,8 @@ class PowerShellLanguageFrontend(
 
         val tu: TranslationUnitDeclaration
         try {
-            // execute script
+            println(path)
+            println(entryScript)
             val p =
                 Runtime.getRuntime()
                     .exec(entryScript?.let { arrayOf("pwsh", it.absolutePathString(), path) })
@@ -99,7 +100,7 @@ class PowerShellLanguageFrontend(
     }
 
     // DFS type of searching
-    fun getFirstChildNodeNamed(targetCode: String, node: PowerShellNode): PowerShellNode? {
+    fun getFirstChildNodeNamedViaCode(targetCode: String, node: PowerShellNode): PowerShellNode? {
         if (node.code == targetCode) return node
 
         if (node.children != null) {
@@ -107,7 +108,7 @@ class PowerShellLanguageFrontend(
                 if (child.code == targetCode) {
                     return child
                 } else {
-                    val ret = getFirstChildNodeNamed(targetCode, child)
+                    val ret = getFirstChildNodeNamedViaCode(targetCode, child)
                     if (ret != null) {
                         if (ret.code == targetCode) return ret
                     }
@@ -117,6 +118,35 @@ class PowerShellLanguageFrontend(
         return null
     }
 
+    // DFS type of searching
+    fun getFirstChildNodeViaName(targetName: String, node: PowerShellNode): PowerShellNode? {
+        if (node.name == targetName) return node
+
+        if (node.children != null) {
+            for (child in node.children!!) {
+                if (child.name == targetName) {
+                    return child
+                } else {
+                    val ret = getFirstChildNodeViaName(targetName, child)
+                    if (ret != null) {
+                        if (ret.name == targetName) return ret
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    fun convertPSCodeType(type: String): String {
+        if (type.lowercase().contains("int")) {
+            return "int"
+        } else if (type.lowercase().contains("string")) {
+            return "String"
+        } else if (type.lowercase().contains("double")) {
+            return "float"
+        }
+        return ""
+    }
     fun getAllLastChildren(
         node: PowerShellNode,
         list: MutableList<PowerShellNode>
@@ -189,16 +219,5 @@ class PowerShellNode(
 ) {
     fun firstChild(type: String): PowerShellNode? {
         return this.children?.firstOrNull { it.type == type }
-    }
-
-    fun convertPSCodeType(): String {
-        if (this.codeType?.lowercase()?.contains("int") == true) {
-            return "int"
-        } else if (this.codeType?.lowercase()?.contains("string") == true) {
-            return "str"
-        } else if (this.codeType?.lowercase()?.contains("double") == true) {
-            return "float"
-        }
-        return ""
     }
 }

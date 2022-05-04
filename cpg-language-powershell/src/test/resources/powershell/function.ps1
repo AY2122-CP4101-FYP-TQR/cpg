@@ -1,20 +1,17 @@
 function test {
     $a = 2
 }
-function testFunc {
+function test2 {
     param (
-        $value,
-        $test,
-        $test2
+        [string] $value,
+        [string] $test,
+        [string] $test2
     )
-    Write-Host $value, $test, $test2
+    Write-Host 555
 }
 
-#$no = "asd"
-#$why = "why"
-
-#testFunc ("hi", $no, $why)
-#testFunc ("hi"), $no, $why
-#testFunc ("test", $no), $why
-#testFunc "special" -test2 $why -test $no
-#testFunc
+function test3($testValue1, $testValue2) {
+    Write-Host $testValue1
+    test2 "hi" "some string" "more string"
+    test2 -value "im value" -test2 "im test2" -test "im tetst"
+}

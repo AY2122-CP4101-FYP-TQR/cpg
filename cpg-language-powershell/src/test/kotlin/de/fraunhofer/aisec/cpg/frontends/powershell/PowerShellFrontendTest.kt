@@ -28,9 +28,9 @@ package de.fraunhofer.aisec.cpg.frontends.powershell
 import de.fraunhofer.aisec.cpg.BaseTest
 import de.fraunhofer.aisec.cpg.ExperimentalPowerShell
 import de.fraunhofer.aisec.cpg.TestUtils
-import de.fraunhofer.aisec.cpg.graph.declarations.FunctionDeclaration
-import de.fraunhofer.aisec.cpg.graph.declarations.NamespaceDeclaration
-import de.fraunhofer.aisec.cpg.graph.declarations.VariableDeclaration
+import de.fraunhofer.aisec.cpg.graph.declarations.*
+import de.fraunhofer.aisec.cpg.graph.statements.*
+import de.fraunhofer.aisec.cpg.graph.statements.expressions.*
 import de.fraunhofer.aisec.cpg.graph.types.TypeParser
 import java.nio.file.Path
 import kotlin.test.assertEquals
@@ -114,5 +114,66 @@ class PowerShellFrontendTest : BaseTest() {
         val bar = p.declarations[1] as? FunctionDeclaration
         assertNotNull(bar)
         assertEquals(3, bar.parameters.size)
+
+        val loo = p.declarations[2] as? FunctionDeclaration
+        assertNotNull(loo)
+        assertEquals(2, loo.parameters.size)
+
+        var libCallExpression =
+            (loo.body as? CompoundStatement)?.statements?.get(0) as? CallExpression
+        assertNotNull(libCallExpression)
+        assertEquals("Write-Host", libCallExpression.name)
+
+        var callExpression = (loo.body as? CompoundStatement)?.statements?.get(1) as? CallExpression
+        assertNotNull(callExpression)
+        assertEquals("test2", callExpression.name)
+        assertEquals(bar, callExpression.invokes.iterator().next())
+
+        var literal = callExpression.arguments.first() as? Literal<*>
+        assertNotNull(literal)
+        assertEquals("'hi'", literal.value)
+        assertEquals(TypeParser.createFrom("String", false), literal.type)
+        assertEquals(0, literal.argumentIndex)
+
+        literal = callExpression.arguments[1] as? Literal<*>
+        assertNotNull(literal)
+        assertEquals("'some string'", literal.value)
+        assertEquals(TypeParser.createFrom("String", false), literal.type)
+        assertEquals(1, literal.argumentIndex)
+
+        literal = callExpression.arguments[2] as? Literal<*>
+        assertNotNull(literal)
+        assertEquals("'more string'", literal.value)
+        assertEquals(TypeParser.createFrom("String", false), literal.type)
+        assertEquals(2, literal.argumentIndex)
+
+        callExpression = (loo.body as? CompoundStatement)?.statements?.get(2) as? CallExpression
+        assertNotNull(callExpression)
+        assertEquals("test2", callExpression.name)
+        assertEquals(bar, callExpression.invokes.iterator().next())
+
+        assertEquals(1, callExpression.arguments[2].argumentIndex)
+
+        val s = bar.parameters.first()
+        assertNotNull(s)
+        assertEquals("\$value", s.name)
+        assertEquals(TypeParser.createFrom("String", false), s.type)
+
+        assertEquals("test2", bar.name)
+
+        val compStmt = bar.body as? CompoundStatement
+        assertNotNull(compStmt)
+        assertNotNull(compStmt.statements)
+
+        callExpression = compStmt.statements[0] as? CallExpression
+        assertNotNull(callExpression)
+
+        assertEquals("Write-Host", callExpression.fqn)
+
+        literal = callExpression.arguments.first() as? Literal<*>
+        assertNotNull(literal)
+
+        assertEquals("555", literal.value)
+        assertEquals(TypeParser.createFrom("int", false), literal.type)
     }
 }
