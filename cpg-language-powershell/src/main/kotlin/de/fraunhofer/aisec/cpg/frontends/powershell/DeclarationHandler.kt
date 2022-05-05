@@ -108,9 +108,9 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
         val valueNode = node.children!![1]
 
         val rhs = this.lang.expressionHandler.handle(valueNode)
-        val tpe = this.lang.convertPSCodeType(rhs.type.name)
+        val tpe = rhs.type.name
         val variable: VariableDeclaration =
-            if (tpe == "") {
+            if (tpe == "UNKNOWN") {
                 this.handle(varNode) as VariableDeclaration
             } else {
                 handleVariableDeclaration(varNode, tpe)

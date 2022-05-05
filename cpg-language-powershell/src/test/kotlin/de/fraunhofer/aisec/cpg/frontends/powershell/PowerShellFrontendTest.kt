@@ -81,12 +81,17 @@ class PowerShellFrontendTest : BaseTest() {
         val t = p.getDeclarationsByName("\$t", VariableDeclaration::class.java).iterator().next()
         assertNotNull(t)
         assertEquals("\$t", t.name)
-        assertEquals(TypeParser.createFrom("str", false), t.type)
+        assertEquals(TypeParser.createFrom("String", false), t.type)
 
         val a = p.getDeclarationsByName("\$a", VariableDeclaration::class.java).iterator().next()
         assertNotNull(a)
         assertEquals("\$a", a.name)
         assertEquals(TypeParser.createFrom("Object", false), a.type)
+
+        val arr =
+            p.getDeclarationsByName("\$arr", VariableDeclaration::class.java).iterator().next()
+        assertNotNull(arr)
+        assertEquals(TypeParser.createFrom("Object[]", false), arr.type)
     }
 
     @Test
@@ -112,23 +117,24 @@ class PowerShellFrontendTest : BaseTest() {
         val foo = p.declarations.first() as? FunctionDeclaration
         assertNotNull(foo)
 
-        val bar = p.declarations[1] as? FunctionDeclaration
-        assertNotNull(bar)
-        assertEquals(3, bar.parameters.size)
+        val test2 = p.declarations[1] as? FunctionDeclaration
+        assertNotNull(test2)
+        assertEquals(3, test2.parameters.size)
 
-        val loo = p.declarations[2] as? FunctionDeclaration
-        assertNotNull(loo)
-        assertEquals(2, loo.parameters.size)
+        val test3 = p.declarations[2] as? FunctionDeclaration
+        assertNotNull(test3)
+        assertEquals(2, test3.parameters.size)
 
         val libCallExpression =
-            (loo.body as? CompoundStatement)?.statements?.get(0) as? CallExpression
+            (test3.body as? CompoundStatement)?.statements?.get(0) as? CallExpression
         assertNotNull(libCallExpression)
         assertEquals("Write-Host", libCallExpression.name)
 
-        var callExpression = (loo.body as? CompoundStatement)?.statements?.get(1) as? CallExpression
+        var callExpression =
+            (test3.body as? CompoundStatement)?.statements?.get(1) as? CallExpression
         assertNotNull(callExpression)
         assertEquals("test2", callExpression.name)
-        assertEquals(bar, callExpression.invokes.iterator().next())
+        assertEquals(test2, callExpression.invokes.iterator().next())
 
         var literal = callExpression.arguments.first() as? Literal<*>
         assertNotNull(literal)
@@ -148,21 +154,21 @@ class PowerShellFrontendTest : BaseTest() {
         assertEquals(TypeParser.createFrom("String", false), literal.type)
         assertEquals(2, literal.argumentIndex)
 
-        callExpression = (loo.body as? CompoundStatement)?.statements?.get(2) as? CallExpression
+        callExpression = (test3.body as? CompoundStatement)?.statements?.get(2) as? CallExpression
         assertNotNull(callExpression)
         assertEquals("test2", callExpression.name)
-        assertEquals(bar, callExpression.invokes.iterator().next())
+        assertEquals(test2, callExpression.invokes.iterator().next())
 
         assertEquals(1, callExpression.arguments[2].argumentIndex)
 
-        val s = bar.parameters.first()
+        val s = test2.parameters.first()
         assertNotNull(s)
         assertEquals("\$value", s.name)
         assertEquals(TypeParser.createFrom("String", false), s.type)
 
-        assertEquals("test2", bar.name)
+        assertEquals("test2", test2.name)
 
-        val compStmt = bar.body as? CompoundStatement
+        val compStmt = test2.body as? CompoundStatement
         assertNotNull(compStmt)
         assertNotNull(compStmt.statements)
 
@@ -176,6 +182,25 @@ class PowerShellFrontendTest : BaseTest() {
 
         assertEquals("555", literal.value)
         assertEquals(TypeParser.createFrom("int", false), literal.type)
+
+        callExpression = (test3.body as? CompoundStatement)?.statements?.get(3) as? CallExpression
+        assertNotNull(callExpression)
+        // assertEquals(1, callExpression.arguments.count())
+        var arr = (callExpression.arguments[0] as InitializerListExpression).initializers
+        assertEquals("'function'", (arr[0] as Literal<*>).value)
+        assertEquals(TypeParser.createFrom("String", false), (arr[0] as Literal<*>).type)
+        assertEquals("'hi'", (arr[1] as Literal<*>).value)
+        assertEquals(TypeParser.createFrom("String", false), (arr[1] as Literal<*>).type)
+
+        callExpression = (test3.body as? CompoundStatement)?.statements?.get(4) as? CallExpression
+        assertNotNull(callExpression)
+        arr = (callExpression.arguments[0] as InitializerListExpression).initializers
+        assertEquals("'testing'", (arr[0] as Literal<*>).value)
+        assertEquals(TypeParser.createFrom("String", false), (arr[0] as Literal<*>).type)
+        assertEquals("'array'", (arr[1] as Literal<*>).value)
+        assertEquals(TypeParser.createFrom("String", false), (arr[1] as Literal<*>).type)
+        assertEquals("5", (arr[2] as Literal<*>).value)
+        assertEquals(TypeParser.createFrom("int", false), (arr[2] as Literal<*>).type)
     }
 
     @Test
@@ -228,5 +253,67 @@ class PowerShellFrontendTest : BaseTest() {
         assertEquals("20", elseStmt.rhs.name)
         assertEquals("\$i", elseStmt.lhs.name)
         assertEquals("MinusEquals", elseStmt.operatorCode)
+    }
+
+    @Test
+    fun testVars() {
+        val topLevel = Path.of("src", "test", "resources", "powershell")
+        val tu =
+            TestUtils.analyzeAndGetFirstTU(
+                listOf(topLevel.resolve("vars.ps1").toFile()),
+                topLevel,
+                true
+            ) {
+                it.registerLanguage(
+                    PowerShellLanguageFrontend::class.java,
+                    PowerShellLanguageFrontend.POWERSHELL_EXTENSIONS
+                )
+            }
+
+        assertNotNull(tu)
+
+        val p = tu.getDeclarationsByName("vars", NamespaceDeclaration::class.java).iterator().next()
+        assertNotNull(p)
+        assertEquals(
+            "'234'",
+            ((p.statements[0].declarations[0] as VariableDeclaration).initializer as Literal<*>)
+                .value
+        )
+        assertEquals(
+            "57",
+            ((p.statements[1].declarations[0] as VariableDeclaration).initializer as Literal<*>)
+                .value
+        )
+        assertEquals(
+            "\$varName",
+            ((p.statements[2].declarations[0] as VariableDeclaration).initializer as BinaryOperator)
+                .lhs
+                .name
+        )
+        assertEquals(
+            "Plus",
+            ((p.statements[2].declarations[0] as VariableDeclaration).initializer as BinaryOperator)
+                .operatorCode
+        )
+        assertEquals(
+            "\$varNum",
+            ((p.statements[2].declarations[0] as VariableDeclaration).initializer as BinaryOperator)
+                .rhs
+                .name
+        )
+        assertEquals(
+            "Write-Host",
+            ((p.statements[3].declarations[0] as VariableDeclaration).initializer as CallExpression)
+                .name
+        )
+        val arr =
+            ((p.statements[4].declarations[0] as VariableDeclaration).initializer as
+                    InitializerListExpression)
+                .initializers
+        assertEquals("50", (arr[0] as Literal<*>).value)
+        assertEquals("20", (arr[1] as Literal<*>).value)
+        assertEquals("'test'", (arr[2] as Literal<*>).value)
+        assertEquals(TypeParser.createFrom("int", false), (arr[0] as Literal<*>).type)
+        assertEquals(TypeParser.createFrom("String", false), (arr[2] as Literal<*>).type)
     }
 }

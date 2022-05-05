@@ -13,5 +13,7 @@ function test2 {
 function test3($testValue1, $testValue2) {
     Write-Host $testValue1
     test2 "hi" "some string" "more string"
-    test2 -value "im value" -test2 "im test2" -test "im tetst"
+    test2 -value "im value" -test2 "im test2" -test "im test"
+    Write-Host("function", "hi")
+    Write-Host "testing", "array", 5
 }
