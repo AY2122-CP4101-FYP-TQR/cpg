@@ -41,7 +41,42 @@ function printAst($id, $Indent = 0)
       $output += ",`"unaryType`": `"{0}`"" -f $_.TokenKind
     }
 
-    if ($_.GetType().Name -like "ForStatementAst") {
+    if ($_.GetType().Name -like "IfStatementAst") {
+      $limit = $_.Clauses.Count + 1
+      $count = 0
+      $output += ", `"ifStmt`": {{ `"num`": `"{0}`" " -f ($limit)
+
+      $cond = @()
+      $body = @()
+      while ($count -lt $limit-1) {
+        $cond += stripIllegalText($_.Clauses[$count].Item1.Extent.Text)
+        $body += stripIllegalText($_.Clauses[$count].Item2.Extent.Text)
+        $count += 1
+      }
+      $body += stripIllegalText($_.ElseClause.Extent.Text)
+
+      $output += ", `"condition`": ["
+      for($i=0; $i -lt ($cond.Length); $i++) {
+        if ($i -ne 0) {
+          $output += ", "
+        }
+        $output += "`"{0}`"" -f $cond[$i]
+      }
+      $output += "], `"body`": ["
+      for($i=0; $i -lt ($body.Length); $i++) {
+        if ($i -ne 0) {
+          $output += ", "
+        }
+        $output += "`"{0}`"" -f $body[$i]
+      }
+      $output += "]}"
+    }
+
+    if ($_.GetType().Name -like "ForStatementAst" -or
+            $_.GetType().Name -like "WhileStatementAst" -or
+            $_.GetType().Name -like "DoWhileStatementAst" -or
+            $_.GetType().Name -like "DoUntilStatementAst" -or
+            $_.GetType().Name -like "ForEachStatementAst") {
       $loop = @()
       $output += ", `"loop`": { "
       if ($null -ne $_.Initializer) {
@@ -51,6 +86,10 @@ function printAst($id, $Indent = 0)
       if ($null -ne $_.Iterator) {
         $toAdd = stripIllegalText($_.Iterator)
         $loop += "`"iterator`": `"{0}`" " -f $toAdd
+      }
+      if ($null -ne $_.Variable) {
+        $toAdd = stripIllegalText($_.Variable)
+        $loop += "`"iterator`": `"{0}`" " -f $_.Variable
       }
       if ($null -ne $_.Condition) {
         $toAdd = stripIllegalText($_.Condition)

@@ -92,6 +92,30 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
         return compoundStatement
     }
 
+    private fun handleStatementBlock(node: PowerShellNode): Statement {
+        if (node.children.isNullOrEmpty()) {
+            return Statement()
+        }
+        if (node.children!!.size > 1) {
+            val compoundStmt = NodeBuilder.newCompoundStatement(node.code)
+            this.lang.scopeManager.enterScope(compoundStmt)
+            for (child in node.children!!) {
+                val handled = handle(child)
+                if (handled != null) {
+                    compoundStmt.addStatement(handled)
+                }
+            }
+            this.lang.scopeManager.leaveScope(compoundStmt)
+            return compoundStmt
+        }
+        return handle(node.children!![0])
+    }
+
+    private fun handleExpressionStmt(node: PowerShellNode): Expression {
+        // wrapper to expression handler
+        return this.lang.expressionHandler.handle(node)
+    }
+
     // AssignmentStatementAst
     // 4 cases of inside/not inside class/function
     // Current implementation: Declaration if new; Declared reference if old
@@ -129,29 +153,42 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
         return statement
     }
 
-    private fun handleExpressionStmt(node: PowerShellNode): Expression {
-        // wrapper to expression handler
-        return this.lang.expressionHandler.handle(node)
-    }
-
+    /**
+     * TODO can improve this further due to false negative from sections sharing same body (low
+     * priority) since it does not make sense, at least in code sense, to do that.
+     */
     private fun handleIfStmt(node: PowerShellNode, counter: Int = 0): Statement? {
-        val numOfChildren = node.children!!.size - 1 // 0-indexing
-        if (counter >= numOfChildren) { // OOB reached - do not access counter+1
-            return if (counter == numOfChildren) { //
-                handleThenStmt(node.children!![counter])
+        val numOfChildren = node.ifStmt!!.num!! - 1
+        if (counter >= numOfChildren) {
+            return if (counter == numOfChildren) {
+                val last =
+                    this.lang.getFirstChildNodeNamedViaCode(node.ifStmt!!.body!![counter], node)
+                if (last != null) {
+                    handleThenStmt(last)
+                } else {
+                    null
+                }
             } else { // counter > numOfChildren
                 null
             }
         }
+        val ifAst = node.ifStmt!!
         val ifStmt = NodeBuilder.newIfStatement(node.code)
         ifStmt.location = this.lang.getLocationFromRawNode(node)
         this.lang.scopeManager.enterScope(ifStmt)
         // condition
-        ifStmt.condition = handle(node.children!![counter]) as Expression?
+        if (ifAst.condition != null) {
+            val condition =
+                this.lang.getFirstChildNodeNamedViaCode(ifAst.condition!![counter], node)
+            ifStmt.condition = handle(condition) as Expression?
+        }
         // Then
-        ifStmt.thenStatement = handleThenStmt(node.children!![counter + 1])
+        if (ifAst.body != null) {
+            val body = this.lang.getFirstChildNodeNamedViaCode(ifAst.body!![counter], node)
+            ifStmt.thenStatement = body?.let { handleThenStmt(it) }
+        }
         // Else
-        val elseStmt = handleIfStmt(node, counter + 2)
+        val elseStmt = handleIfStmt(node, counter + 1)
         if (elseStmt != null) {
             ifStmt.elseStatement = elseStmt
         }
@@ -174,48 +211,33 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
         return compoundStatement
     }
 
-    private fun handleStatementBlock(node: PowerShellNode): Statement {
-        if (node.children.isNullOrEmpty()) {
-            return Statement()
-        }
-        if (node.children!!.size > 1) {
-            val compoundStmt = NodeBuilder.newCompoundStatement(node.code)
-            this.lang.scopeManager.enterScope(compoundStmt)
-            for (child in node.children!!) {
-                val handled = handle(child)
-                if (handled != null) {
-                    compoundStmt.addStatement(handled)
-                }
-            }
-            this.lang.scopeManager.leaveScope(compoundStmt)
-            return compoundStmt
-        }
-        return handle(node.children!![0])
-    }
-
     private fun handleForStmt(node: PowerShellNode): ForStatement {
         val forStmt = NodeBuilder.newForStatement(node.code)
         val forLoop = node.loop!!
         var counter = 0
         this.lang.scopeManager.enterScope(forStmt)
-        // Handle initializer - child[0] is AssignmentStatementAst
+        // Handle initializer
         if (forLoop.init != null) {
-            forStmt.initializerStatement = handle(node.children!![counter])
+            val init = this.lang.getFirstChildNodeNamedViaCode(forLoop.init!!, node)
+            forStmt.initializerStatement = handle(init)
             counter += 1
         }
-        // Handle condition - child[1] is PipelineAst
+        // Handle condition
         if (forLoop.condition != null) {
-            forStmt.condition = handle(node.children!![counter]) as Expression
+            val cond = this.lang.getFirstChildNodeNamedViaCode(forLoop.condition!!, node)
+            forStmt.condition = handle(cond) as Expression
             counter += 1
         }
         // Handle iteration - child[2] is
         if (forLoop.iterator != null) {
-            forStmt.iterationStatement = handle(node.children!![counter])
+            val it = this.lang.getFirstChildNodeNamedViaCode(forLoop.iterator!!, node)
+            forStmt.iterationStatement = handle(it)
             counter += 1
         }
-        // Handle body - child[3] is
+        // Handle body
         if (forLoop.body != null) {
-            forStmt.statement = handle(node.children!![counter])
+            val body = this.lang.getFirstChildNodeNamedViaCode(forLoop.body!!, node)
+            forStmt.statement = handle(body)
         }
         this.lang.scopeManager.leaveScope(forStmt)
         return forStmt
@@ -225,45 +247,69 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
         if (node.children == null || node.children!!.size != 3) {
             log.warn("ForEachStmt has ${node.children!!.size} children, diff from assumption of 3")
         }
-        val targetNode = node.children!![0]
-        val itNode = node.children!![1]
-        val stmtNode = node.children!![2]
+        val loop = node.loop!!
+        val iterator = this.lang.getFirstChildNodeNamedViaCode(loop.iterator!!, node)
+        val condition = this.lang.getFirstChildNodeNamedViaCode(loop.condition!!, node)
+        val body = this.lang.getFirstChildNodeNamedViaCode(loop.body!!, node)
 
         val forStmt = NodeBuilder.newForEachStatement(node.code)
         this.lang.scopeManager.enterScope(forStmt)
+
         // handle declaration
-        val decl = NodeBuilder.newDeclarationStatement(targetNode.code)
-        decl.location = this.lang.getLocationFromRawNode(targetNode)
-        val declaration = this.lang.declarationHandler.handle(targetNode)
-        decl.singleDeclaration = declaration
-        this.lang.scopeManager.addDeclaration(declaration)
-        forStmt.variable = decl
+        if (iterator != null) {
+            val decl = NodeBuilder.newDeclarationStatement(iterator.code)
+            decl.location = this.lang.getLocationFromRawNode(iterator)
+            val declaration = this.lang.declarationHandler.handle(iterator)
+            decl.singleDeclaration = declaration
+            this.lang.scopeManager.addDeclaration(declaration)
+            forStmt.variable = decl
+        }
+
         // handle iterable
-        val it = this.lang.expressionHandler.handle(itNode)
-        forStmt.iterable = it
+        if (condition != null) {
+            val it = this.lang.expressionHandler.handle(condition)
+            forStmt.iterable = it
+        }
+
         // handle statement
-        val stmt = this.handle(stmtNode)
-        forStmt.statement = stmt
+        if (body != null) {
+            val stmt = this.handle(body)
+            forStmt.statement = stmt
+        }
+
         this.lang.scopeManager.leaveScope(forStmt)
         return forStmt
     }
 
-    // First child is the condition, second child is the body.
     private fun handleWhileStmt(node: PowerShellNode): WhileStatement {
+        val loop = node.loop!!
         val whileStmt = NodeBuilder.newWhileStatement(node.code)
         this.lang.scopeManager.enterScope(whileStmt)
-        // whileStmt.conditionDeclaration = handle(node)
-        whileStmt.condition = this.lang.expressionHandler.handle(node.children!![0])
-        whileStmt.statement = handle(node.children!![1])
+
+        if (loop.condition != null) {
+            val cond = this.lang.getFirstChildNodeNamedViaCode(loop.condition!!, node)
+            whileStmt.condition = this.lang.expressionHandler.handle(cond)
+        }
+        if (loop.body != null) {
+            val body = this.lang.getFirstChildNodeNamedViaCode(loop.body!!, node)
+            whileStmt.statement = handle(body)
+        }
         this.lang.scopeManager.leaveScope(whileStmt)
         return whileStmt
     }
 
     private fun handleDoWhileStmt(node: PowerShellNode): DoStatement {
+        val loop = node.loop!!
         val doStmt = NodeBuilder.newDoStatement(node.code)
         this.lang.scopeManager.enterScope(doStmt)
-        doStmt.condition = this.lang.expressionHandler.handle(node.children!![0])
-        doStmt.statement = handle(node.children!![1])
+        if (loop.condition != null) {
+            val cond = this.lang.getFirstChildNodeNamedViaCode(loop.condition!!, node)
+            doStmt.condition = this.lang.expressionHandler.handle(cond)
+        }
+        if (loop.body != null) {
+            val body = this.lang.getFirstChildNodeNamedViaCode(loop.body!!, node)
+            doStmt.statement = handle(body)
+        }
         this.lang.scopeManager.leaveScope(doStmt)
         return doStmt
     }
@@ -273,12 +319,19 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
             "Handling of DoUntil Statements is currently not supported, handling like doWhile with" +
                 "the conditions inverted by adding '!' to it."
         )
+        val loop = node.loop!!
         val doStmt = NodeBuilder.newDoStatement(node.code)
         this.lang.scopeManager.enterScope(doStmt)
-        val condition = this.lang.expressionHandler.handle(node.children!![0])
-        condition.code = "!(" + condition.code.toString() + ")"
-        doStmt.condition = condition
-        doStmt.statement = handle(node.children!![1])
+        if (loop.condition != null) {
+            val cond = this.lang.getFirstChildNodeNamedViaCode(loop.condition!!, node)
+            val condition = this.lang.expressionHandler.handle(cond)
+            condition.code = "!(" + condition.code.toString() + ")"
+            doStmt.condition = condition
+        }
+        if (loop.body != null) {
+            val body = this.lang.getFirstChildNodeNamedViaCode(loop.body!!, node)
+            doStmt.statement = handle(body)
+        }
         this.lang.scopeManager.leaveScope(doStmt)
         return doStmt
     }
