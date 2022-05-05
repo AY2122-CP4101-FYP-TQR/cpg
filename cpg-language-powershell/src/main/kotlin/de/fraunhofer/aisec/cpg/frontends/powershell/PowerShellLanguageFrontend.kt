@@ -199,7 +199,7 @@ class Location(
     var endCol: Int
 )
 
-class ForLoop(var init: Boolean, var condition: Boolean, var body: Boolean, var iterator: Boolean)
+class loop(var init: String?, var condition: String?, var body: String?, var iterator: String?)
 
 class Function(var param: List<String>, var type: List<String>, var body: String)
 
@@ -214,7 +214,7 @@ class PowerShellNode(
     // other details specific to certain AST
     var operator: String?,
     var unaryType: String?,
-    var forLoop: ForLoop?,
+    var loop: loop?,
     var function: Function?
 ) {
     fun firstChild(type: String): PowerShellNode? {

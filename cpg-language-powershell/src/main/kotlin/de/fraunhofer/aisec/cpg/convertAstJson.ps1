@@ -42,9 +42,31 @@ function printAst($id, $Indent = 0)
     }
 
     if ($_.GetType().Name -like "ForStatementAst") {
-      $output += ", `"for`": {{`"init`": `"{0}`", `"iterator`": `"{1}`", `"condition`": `"{2}`", `"body`": `"{3}`" }} " -f ($null -ne $_.Initializer), ($null -ne $_.Iterator), ($null -ne $_.Condition), ($null -ne $_.Body)
-      $output += printAst -id $newid -indent ($indent + 1)
-      $output += "]"
+      $loop = @()
+      $output += ", `"loop`": { "
+      if ($null -ne $_.Initializer) {
+        $toAdd = stripIllegalText($_.Initializer)
+        $loop += "`"init`": `"{0}`" " -f $toAdd
+      }
+      if ($null -ne $_.Iterator) {
+        $toAdd = stripIllegalText($_.Iterator)
+        $loop += "`"iterator`": `"{0}`" " -f $toAdd
+      }
+      if ($null -ne $_.Condition) {
+        $toAdd = stripIllegalText($_.Condition)
+        $loop += "`"condition`": `"{0}`" " -f $_.Condition
+      }
+      if ($null -ne $_.Body.Extent.Text) {
+        $toAdd = stripIllegalText($_.Body.Extent.Text)
+        $loop += "`"body`": `"{0}`"" -f $toAdd
+      }
+      for($i=0; $i -lt ($loop.Length); $i++) {
+        if ($i -ne 0) {
+          $output += ","
+        }
+        $output += $loop[$i]
+      }
+      $output += "}"
     }
 
     if ($_.GetType().Name -like "FunctionDefinitionAst") {

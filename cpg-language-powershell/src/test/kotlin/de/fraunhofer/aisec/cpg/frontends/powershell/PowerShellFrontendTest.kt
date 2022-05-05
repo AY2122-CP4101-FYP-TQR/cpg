@@ -316,4 +316,111 @@ class PowerShellFrontendTest : BaseTest() {
         assertEquals(TypeParser.createFrom("int", false), (arr[0] as Literal<*>).type)
         assertEquals(TypeParser.createFrom("String", false), (arr[2] as Literal<*>).type)
     }
+
+    @Test
+    fun testLoops() {
+        val topLevel = Path.of("src", "test", "resources", "powershell")
+        val tu =
+            TestUtils.analyzeAndGetFirstTU(
+                listOf(topLevel.resolve("loop.ps1").toFile()),
+                topLevel,
+                true
+            ) {
+                it.registerLanguage(
+                    PowerShellLanguageFrontend::class.java,
+                    PowerShellLanguageFrontend.POWERSHELL_EXTENSIONS
+                )
+            }
+
+        assertNotNull(tu)
+
+        val p = tu.getDeclarationsByName("loop", NamespaceDeclaration::class.java).iterator().next()
+
+        assertNotNull(p)
+        val forloop = p.statements[0] as ForStatement
+        assertNotNull(forloop)
+
+        var init = forloop.initializerStatement as DeclarationStatement
+        assertNotNull(init)
+        var initVar = init.declarations[0] as VariableDeclaration
+        assertEquals("\$i", (initVar.name))
+        assertEquals("0", ((initVar.initializer) as Literal<*>).value)
+
+        var cond = forloop.condition as BinaryOperator
+        assertNotNull(cond)
+        assertEquals("\$i", cond.lhs.name)
+        assertEquals("5", cond.rhs.name)
+        assertEquals("-lt", cond.operatorCode)
+
+        var it = forloop.iterationStatement as UnaryOperator
+        assertNotNull(it)
+        assertEquals(((it.input as DeclaredReferenceExpression).refersTo), initVar)
+        assertEquals("++", it.operatorCode)
+
+        var body = forloop.statement
+        assertNotNull(body)
+
+        /** While loop */
+        val whileloop = p.statements[2] as WhileStatement
+        assertNotNull(whileloop)
+
+        cond = whileloop.condition as BinaryOperator
+        assertNotNull(cond)
+        assertEquals("\$i", cond.lhs.name)
+        assertEquals("5", cond.rhs.name)
+        assertEquals("-lt", cond.operatorCode)
+
+        body = whileloop.statement
+        assertNotNull(body)
+
+        /** DoWhile loop */
+        val doWhileloop = p.statements[4] as DoStatement
+        assertNotNull(doWhileloop)
+
+        cond = doWhileloop.condition as BinaryOperator
+        assertNotNull(cond)
+        assertEquals("\$i", cond.lhs.name)
+        assertEquals("5", cond.rhs.name)
+        assertEquals("-lt", cond.operatorCode)
+
+        body = doWhileloop.statement
+        assertNotNull(body)
+
+        /** DoUntil loop */
+        val doUntilloop = p.statements[6] as DoStatement
+        assertNotNull(doWhileloop)
+
+        cond = doUntilloop.condition as BinaryOperator
+        assertNotNull(cond)
+        assertEquals("\$i", cond.lhs.name)
+        assertEquals("5", cond.rhs.name)
+        assertEquals("-gt", cond.operatorCode)
+        assertTrue(cond.code!![0] == '!')
+
+        body = doUntilloop.statement
+        assertNotNull(body)
+
+        /** ForEach */
+        val arr = (p.statements[7] as DeclarationStatement).declarations[0] as VariableDeclaration
+        val forEach = p.statements[8] as ForEachStatement
+        assertNotNull(forEach)
+        val iterator = forEach.iterable as DeclaredReferenceExpression
+        assertEquals((iterator.refersTo), arr)
+        val variable = forEach.variable.declarations[0]
+        assertEquals("\$a", variable.name)
+
+        body = forEach.statement as CompoundStatement
+        assertNotNull(body)
+        assertEquals("Write-Host", (body.statements[0] as CallExpression).name)
+        assertEquals(
+            variable,
+            ((((body.statements[1] as DeclarationStatement).declarations[0] as VariableDeclaration)
+                        .initializer as
+                        BinaryOperator)
+                    .lhs as
+                    DeclaredReferenceExpression)
+                .refersTo as
+                VariableDeclaration
+        )
+    }
 }

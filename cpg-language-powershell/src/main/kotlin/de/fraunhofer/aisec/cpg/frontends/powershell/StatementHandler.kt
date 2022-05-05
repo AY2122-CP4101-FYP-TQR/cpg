@@ -195,26 +195,26 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
 
     private fun handleForStmt(node: PowerShellNode): ForStatement {
         val forStmt = NodeBuilder.newForStatement(node.code)
-        val forLoop = node.forLoop!!
+        val forLoop = node.loop!!
         var counter = 0
         this.lang.scopeManager.enterScope(forStmt)
         // Handle initializer - child[0] is AssignmentStatementAst
-        if (forLoop.init) {
+        if (forLoop.init != null) {
             forStmt.initializerStatement = handle(node.children!![counter])
             counter += 1
         }
         // Handle condition - child[1] is PipelineAst
-        if (forLoop.condition) {
+        if (forLoop.condition != null) {
             forStmt.condition = handle(node.children!![counter]) as Expression
             counter += 1
         }
         // Handle iteration - child[2] is
-        if (forLoop.iterator) {
+        if (forLoop.iterator != null) {
             forStmt.iterationStatement = handle(node.children!![counter])
             counter += 1
         }
         // Handle body - child[3] is
-        if (forLoop.body) {
+        if (forLoop.body != null) {
             forStmt.statement = handle(node.children!![counter])
         }
         this.lang.scopeManager.leaveScope(forStmt)
@@ -234,7 +234,9 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
         // handle declaration
         val decl = NodeBuilder.newDeclarationStatement(targetNode.code)
         decl.location = this.lang.getLocationFromRawNode(targetNode)
-        decl.singleDeclaration = this.lang.declarationHandler.handle(targetNode)
+        val declaration = this.lang.declarationHandler.handle(targetNode)
+        decl.singleDeclaration = declaration
+        this.lang.scopeManager.addDeclaration(declaration)
         forStmt.variable = decl
         // handle iterable
         val it = this.lang.expressionHandler.handle(itNode)
