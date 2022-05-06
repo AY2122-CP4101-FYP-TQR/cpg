@@ -49,21 +49,30 @@ import org.eclipse.cdt.core.dom.ast.IASTTranslationUnit.IDependencyTree.IASTIncl
 import org.eclipse.cdt.internal.core.dom.parser.cpp.*
 
 class DeclarationHandler(lang: CXXLanguageFrontend) :
-    Handler<Declaration?, IASTDeclaration, CXXLanguageFrontend>(Supplier { Declaration() }, lang) {
+    Handler<Declaration?, IASTDeclaration, CXXLanguageFrontend>(
+        Supplier { ProblemDeclaration() },
+        lang
+    ) {
 
     init {
-        map[CPPASTTemplateDeclaration::class.java] =
-            HandlerInterface { handleTemplateDeclaration(it as CPPASTTemplateDeclaration) }
-        map[CPPASTSimpleDeclaration::class.java] =
-            HandlerInterface { handleSimpleDeclaration(it as CPPASTSimpleDeclaration) }
-        map[CPPASTFunctionDefinition::class.java] =
-            HandlerInterface { handleFunctionDefinition(it as CPPASTFunctionDefinition) }
-        map[CPPASTProblemDeclaration::class.java] =
-            HandlerInterface { handleProblem(it as CPPASTProblemDeclaration) }
-        map[CPPASTNamespaceDefinition::class.java] =
-            HandlerInterface { handleNamespace(it as CPPASTNamespaceDefinition) }
-        map[CPPASTUsingDirective::class.java] =
-            HandlerInterface { handleUsingDirective(it as CPPASTUsingDirective) }
+        map[CPPASTTemplateDeclaration::class.java] = HandlerInterface {
+            handleTemplateDeclaration(it as CPPASTTemplateDeclaration)
+        }
+        map[CPPASTSimpleDeclaration::class.java] = HandlerInterface {
+            handleSimpleDeclaration(it as CPPASTSimpleDeclaration)
+        }
+        map[CPPASTFunctionDefinition::class.java] = HandlerInterface {
+            handleFunctionDefinition(it as CPPASTFunctionDefinition)
+        }
+        map[CPPASTProblemDeclaration::class.java] = HandlerInterface {
+            handleProblem(it as CPPASTProblemDeclaration)
+        }
+        map[CPPASTNamespaceDefinition::class.java] = HandlerInterface {
+            handleNamespace(it as CPPASTNamespaceDefinition)
+        }
+        map[CPPASTUsingDirective::class.java] = HandlerInterface {
+            handleUsingDirective(it as CPPASTUsingDirective)
+        }
     }
 
     private fun handleUsingDirective(using: CPPASTUsingDirective): Declaration {
@@ -90,12 +99,7 @@ class DeclarationHandler(lang: CXXLanguageFrontend) :
     }
 
     private fun handleProblem(ctx: CPPASTProblemDeclaration): Declaration {
-        val problem =
-            NodeBuilder.newProblemDeclaration(
-                ctx.containingFilename,
-                ctx.problem.message,
-                ctx.problem.fileLocation.toString()
-            )
+        val problem = NodeBuilder.newProblemDeclaration(ctx.problem.message)
 
         lang.scopeManager.addDeclaration(problem)
 
@@ -291,15 +295,17 @@ class DeclarationHandler(lang: CXXLanguageFrontend) :
                     lang.parameterDeclarationHandler.handle(
                         templateParameter as IASTParameterDeclaration
                     )
-                if (templateParameter.declarator.initializer != null) {
-                    val defaultExpression =
-                        lang.initializerHandler.handle(templateParameter.declarator.initializer)
-                    nonTypeTemplateParamDeclaration!!.default = defaultExpression
-                    nonTypeTemplateParamDeclaration.addPrevDFG(defaultExpression!!)
-                    defaultExpression.addNextDFG(nonTypeTemplateParamDeclaration)
+                if (nonTypeTemplateParamDeclaration is ParamVariableDeclaration) {
+                    if (templateParameter.declarator.initializer != null) {
+                        val defaultExpression =
+                            lang.initializerHandler.handle(templateParameter.declarator.initializer)
+                        nonTypeTemplateParamDeclaration!!.default = defaultExpression
+                        nonTypeTemplateParamDeclaration.addPrevDFG(defaultExpression!!)
+                        defaultExpression.addNextDFG(nonTypeTemplateParamDeclaration)
+                    }
+                    templateDeclaration.addParameter(nonTypeTemplateParamDeclaration)
+                    lang.scopeManager.addDeclaration(nonTypeTemplateParamDeclaration)
                 }
-                templateDeclaration.addParameter(nonTypeTemplateParamDeclaration)
-                lang.scopeManager.addDeclaration(nonTypeTemplateParamDeclaration)
             }
         }
     }
@@ -528,8 +534,13 @@ class DeclarationHandler(lang: CXXLanguageFrontend) :
             }
             val decl = handle(declaration) ?: continue
             if (decl is ProblemDeclaration) {
-                val problems = problematicIncludes.computeIfAbsent(decl.filename) { HashSet() }
-                problems.add(decl)
+                decl.location?.let {
+                    val problems =
+                        problematicIncludes.computeIfAbsent(it.artifactLocation.toString()) {
+                            HashSet()
+                        }
+                    problems.add(decl)
+                }
             }
         }
 

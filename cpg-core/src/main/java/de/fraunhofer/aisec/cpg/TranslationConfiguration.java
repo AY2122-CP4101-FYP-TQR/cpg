@@ -28,6 +28,9 @@ package de.fraunhofer.aisec.cpg;
 import static de.fraunhofer.aisec.cpg.frontends.cpp.CXXLanguageFrontend.CXX_EXTENSIONS;
 import static de.fraunhofer.aisec.cpg.frontends.cpp.CXXLanguageFrontend.CXX_HEADER_EXTENSIONS;
 
+import com.fasterxml.jackson.annotation.JsonIdentityInfo;
+import com.fasterxml.jackson.annotation.JsonIdentityReference;
+import com.fasterxml.jackson.annotation.ObjectIdGenerators;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import de.fraunhofer.aisec.cpg.frontends.CompilationDatabase;
@@ -119,7 +122,7 @@ public class TranslationConfiguration {
   public final Map<String, String> symbols;
 
   /** Source code files to parse. */
-  private final List<File> sourceLocations;
+  private final Map<String, List<File>> softwareComponents;
 
   private final File topLevel;
 
@@ -161,7 +164,7 @@ public class TranslationConfiguration {
 
   private TranslationConfiguration(
       Map<String, String> symbols,
-      List<File> sourceLocations,
+      Map<String, List<File>> softwareComponents,
       File topLevel,
       boolean debugParser,
       boolean failOnError,
@@ -180,7 +183,7 @@ public class TranslationConfiguration {
       InferenceConfiguration inferenceConfiguration,
       CompilationDatabase compilationDatabase) {
     this.symbols = symbols;
-    this.sourceLocations = sourceLocations;
+    this.softwareComponents = softwareComponents;
     this.topLevel = topLevel;
     this.debugParser = debugParser;
     this.failOnError = failOnError;
@@ -209,8 +212,8 @@ public class TranslationConfiguration {
     return this.symbols;
   }
 
-  public List<File> getSourceLocations() {
-    return this.sourceLocations;
+  public Map<String, List<File>> getSoftwareComponents() {
+    return this.softwareComponents;
   }
 
   @Nullable
@@ -222,6 +225,8 @@ public class TranslationConfiguration {
     return topLevel;
   }
 
+  @JsonIdentityInfo(generator = ObjectIdGenerators.PropertyGenerator.class, property = "name")
+  @JsonIdentityReference(alwaysAsId = true)
   public List<Pass> getRegisteredPasses() {
     return this.passes;
   }
@@ -250,7 +255,7 @@ public class TranslationConfiguration {
    * }</pre>
    */
   public static class Builder {
-    private List<File> sourceLocations = new ArrayList<>();
+    private Map<String, List<File>> softwareComponents = new HashMap<>();
     private final Map<Class<? extends LanguageFrontend>, List<String>> frontends = new HashMap<>();
     private File topLevel = null;
     private boolean debugParser = false;
@@ -277,24 +282,37 @@ public class TranslationConfiguration {
     }
 
     /**
-     * Files or directories containing the source code to analyze.
+     * Files or directories containing the source code to analyze. Generates a dummy software
+     * component called "SWC".
      *
-     * @param sourceLocations
-     * @return
+     * @param sourceLocations The files with the source code
+     * @return this
      */
     public Builder sourceLocations(File... sourceLocations) {
-      this.sourceLocations = Arrays.asList(sourceLocations);
+      this.softwareComponents.put("SWC", Arrays.asList(sourceLocations));
       return this;
     }
 
     /**
-     * Files or directories containing the source code to analyze
+     * Files or directories containing the source code to analyze. Generates a dummy software
+     * component called "SWC".
      *
-     * @param sourceLocations
-     * @return
+     * @param sourceLocations The files with the source code
+     * @return this
      */
     public Builder sourceLocations(List<File> sourceLocations) {
-      this.sourceLocations = sourceLocations;
+      this.softwareComponents.put("SWC", sourceLocations);
+      return this;
+    }
+
+    /**
+     * Files or directories containing the source code to analyze organized by different components
+     *
+     * @param softwareComponents A map holding the different components with their files
+     * @return this
+     */
+    public Builder softwareComponents(Map<String, List<File>> softwareComponents) {
+      this.softwareComponents = softwareComponents;
       return this;
     }
 
@@ -534,7 +552,7 @@ public class TranslationConfiguration {
       }
       return new TranslationConfiguration(
           symbols,
-          sourceLocations,
+          softwareComponents,
           topLevel,
           debugParser,
           failOnError,
@@ -557,25 +575,6 @@ public class TranslationConfiguration {
 
   @Override
   public String toString() {
-    return new ToStringBuilder(this, ToStringStyle.JSON_STYLE)
-        .append("debugParser", debugParser)
-        .append("loadIncludes", loadIncludes)
-        .append("includePaths", includePaths)
-        .append("includeWhitelist", includeWhitelist)
-        .append("includeBlacklist", includeBlacklist)
-        .append("frontends", frontends)
-        .append("disableCleanup", disableCleanup)
-        .append("codeInNodes", codeInNodes)
-        .append("processAnnotations", processAnnotations)
-        .append("failOnError", failOnError)
-        .append("symbols", symbols)
-        .append("sourceLocations", sourceLocations)
-        .append("topLevel", topLevel)
-        .append("useUnityBuild", useUnityBuild)
-        .append("useParallelFrontends", useParallelFrontends)
-        .append("typeSystemActiveInFrontend", typeSystemActiveInFrontend)
-        .append("passes", passes)
-        .append("inferenceConfiguration", inferenceConfiguration)
-        .toString();
+    return ToStringBuilder.reflectionToString(this, ToStringStyle.JSON_STYLE);
   }
 }

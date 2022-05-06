@@ -36,7 +36,7 @@ import de.fraunhofer.aisec.cpg.graph.declarations.TranslationUnitDeclaration
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Expression
 import de.fraunhofer.aisec.cpg.graph.types.TypeParser
 import de.fraunhofer.aisec.cpg.graph.types.UnknownType
-import de.fraunhofer.aisec.cpg.helpers.Benchmark
+import de.fraunhofer.aisec.cpg.helpers.TimeBenchmark
 import de.fraunhofer.aisec.cpg.passes.scopes.ScopeManager
 import de.fraunhofer.aisec.cpg.sarif.PhysicalLocation
 import de.fraunhofer.aisec.cpg.sarif.Region
@@ -185,15 +185,18 @@ class CXXLanguageFrontend(config: TranslationConfiguration, scopeManager: ScopeM
             includePaths.add(config.topLevel.toPath().toAbsolutePath().toString())
         }
 
+        val symbols: HashMap<String, String> = HashMap()
+        symbols.putAll(config.symbols)
         includePaths.addAll(listOf(*config.includePaths))
 
-        config.compilationDatabase?.get(file)?.let { includePaths.addAll(it) }
+        config.compilationDatabase?.getIncludePaths(file)?.let { includePaths.addAll(it) }
+        config.compilationDatabase?.getSymbols(file)?.let { symbols.putAll(it) }
 
-        val scannerInfo = ScannerInfo(config.symbols, includePaths.toTypedArray())
+        val scannerInfo = ScannerInfo(symbols, includePaths.toTypedArray())
         val log = DefaultLogService()
         val opts = ILanguage.OPTION_PARSE_INACTIVE_CODE // | ILanguage.OPTION_ADD_COMMENTS;
         return try {
-            var bench = Benchmark(this.javaClass, "Parsing sourcefile")
+            var bench = TimeBenchmark(this.javaClass, "Parsing sourcefile")
             val translationUnit =
                 GPPLanguage.getDefault()
                     .getASTTranslationUnit(
@@ -207,8 +210,8 @@ class CXXLanguageFrontend(config: TranslationConfiguration, scopeManager: ScopeM
                     CPPASTTranslationUnit
             val length = translationUnit.length
             LOGGER.info("Parsed {} bytes corresponding roughly to {} LoC", length, length / 50)
-            bench.stop()
-            bench = Benchmark(this.javaClass, "Transform to CPG")
+            bench.addMeasurement()
+            bench = TimeBenchmark(this.javaClass, "Transform to CPG")
             if (config.debugParser) {
                 explore(translationUnit, 0)
             }
@@ -221,7 +224,7 @@ class CXXLanguageFrontend(config: TranslationConfiguration, scopeManager: ScopeM
             }
             val translationUnitDeclaration =
                 declarationHandler.handleTranslationUnit(translationUnit)
-            bench.stop()
+            bench.addMeasurement()
             translationUnitDeclaration
         } catch (ex: CoreException) {
             throw TranslationException(ex)

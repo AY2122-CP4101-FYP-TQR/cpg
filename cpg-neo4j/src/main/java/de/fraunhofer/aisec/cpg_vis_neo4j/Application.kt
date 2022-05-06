@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, Fraunhofer AISEC. All rights reserved.
+ * Copyright (c) 2022, Fraunhofer AISEC. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,7 +32,7 @@ import de.fraunhofer.aisec.cpg.frontends.llvm.LLVMIRLanguageFrontend
 import de.fraunhofer.aisec.cpg.frontends.powershell.PowerShellLanguageFrontend
 import de.fraunhofer.aisec.cpg.frontends.python.PythonLanguageFrontend
 import de.fraunhofer.aisec.cpg.frontends.typescript.TypeScriptLanguageFrontend
-import de.fraunhofer.aisec.cpg.helpers.Benchmark
+import de.fraunhofer.aisec.cpg.helpers.TimeBenchmark
 import java.io.File
 import java.net.ConnectException
 import java.nio.file.Paths
@@ -54,7 +54,6 @@ private const val MAX_COUNT_OF_FAILS = 10
 private const val EXIT_SUCCESS = 0
 private const val EXIT_FAILURE = 1
 private const val VERIFY_CONNECTION = true
-private const val PURGE_DB = true
 private const val DEBUG_PARSER = true
 private const val AUTO_INDEX = "none"
 private const val PROTOCOL = "bolt://"
@@ -68,8 +67,6 @@ private const val DEFAULT_SAVE_DEPTH = -1
 /**
  * An application to export the <a href="https://github.com/Fraunhofer-AISEC/cpg">cpg</a> to a <a
  * href="https://github.com/Fraunhofer-AISEC/cpg">neo4j</a> database.
- *
- * @author Andreas Hager, andreas.hager@aisec.fraunhofer.de
  */
 class Application : Callable<Int> {
 
@@ -82,12 +79,21 @@ class Application : Callable<Int> {
 
     class Exclusive {
         @CommandLine.Parameters(
-            arity = "1..*",
+            arity = "0..*",
             description =
                 [
                     "The paths to analyze. If module support is enabled, the paths will be looked at if they contain modules"]
         )
-        var files: Array<String> = emptyArray()
+        var files: List<String> = mutableListOf()
+
+        @CommandLine.Option(
+            names = ["--softwareComponents", "-S"],
+            description =
+                [
+                    "Maps the names of software components to their respective files. The files are separated by commas (No whitespace!).",
+                    "Example: -S App1=./file1.c,./file2.c -S App2=./Main.java,./Class.java"]
+        )
+        var softwareComponents: Map<String, String> = mutableMapOf()
 
         @CommandLine.Option(
             names = ["--json-compilation-database"],
@@ -185,6 +191,26 @@ class Application : Callable<Int> {
     )
     private var noNeo4j: Boolean = false
 
+    @CommandLine.Option(
+        names = ["--no-purge-db"],
+        description = ["Do no purge neo4j database before pushing the cpg"]
+    )
+    private var noPurgeDb: Boolean = false
+
+    @CommandLine.Option(
+        names = ["--top-level"],
+        description =
+            [
+                "Set top level directory of project structure. Default: Largest common path of all source files"]
+    )
+    private var topLevel: File? = null
+
+    @CommandLine.Option(
+        names = ["--benchmark-json"],
+        description = ["Save benchmark results to json file"]
+    )
+    private var benchmarkJson: File? = null
+
     /**
      * Pushes the whole translationResult to the neo4j db.
      *
@@ -195,11 +221,11 @@ class Application : Callable<Int> {
      */
     @Throws(InterruptedException::class, ConnectException::class)
     fun pushToNeo4j(translationResult: TranslationResult) {
-        var bench = Benchmark(this.javaClass, "Push cpg to neo4j", false, translationResult)
+        val bench = TimeBenchmark(this.javaClass, "Push cpg to neo4j", false, translationResult)
         log.info("Using import depth: $depth")
         log.info(
             "Count base nodes to save: " +
-                translationResult.translationUnits.size +
+                translationResult.components.size +
                 translationResult.additionalNodes.size
         )
 
@@ -207,15 +233,15 @@ class Application : Callable<Int> {
 
         val session = sessionAndSessionFactoryPair.first
         session.beginTransaction().use { transaction ->
-            if (PURGE_DB) session.purgeDatabase()
-            session.save(translationResult.translationUnits, depth)
+            if (!noPurgeDb) session.purgeDatabase()
+            session.save(translationResult.components, depth)
             session.save(translationResult.additionalNodes, depth)
             transaction.commit()
         }
 
         session.clear()
         sessionAndSessionFactoryPair.second.close()
-        bench.stop()
+        bench.addMeasurement()
     }
 
     /**
@@ -266,45 +292,48 @@ class Application : Callable<Int> {
     }
 
     /**
+     * Checks if all elements in the parameter are a valid file and returns a list of files.
+     *
+     * @param filenames The filenames to check
+     * @return List of files
+     */
+    private fun getFilesOfList(filenames: Collection<String>): List<File> {
+        val filePaths = filenames.map { Paths.get(it).toAbsolutePath().normalize().toFile() }
+        filePaths.forEach {
+            require(it.exists() && (!it.isHidden)) {
+                "Please use a correct path. It was: ${it.path}"
+            }
+        }
+        return filePaths
+    }
+
+    /**
      * Parse the file paths to analyze and set up the translationConfiguration with these paths.
      *
-     * @throws IllegalArgumentException, if there was no arguments provided, or the path does not
+     * @throws IllegalArgumentException, if there were no arguments provided, or the path does not
      * point to a file, is a directory or point to a hidden file or the paths does not have the same
      * top level path.
      */
-    @OptIn(
-        ExperimentalPython::class,
-        ExperimentalGolang::class,
-        ExperimentalTypeScript::class,
-        ExperimentalPowerShell::class
-    )
+    @OptIn(ExperimentalPython::class, ExperimentalGolang::class, ExperimentalTypeScript::class)
     private fun setupTranslationConfiguration(): TranslationConfiguration {
-        assert(mutuallyExclusiveParameters.files.isNotEmpty())
-        val filePaths = arrayOfNulls<File>(mutuallyExclusiveParameters.files.size)
-        var topLevel: File? = null
-
-        for (index in mutuallyExclusiveParameters.files.indices) {
-            val path =
-                Paths.get(mutuallyExclusiveParameters.files[index]).toAbsolutePath().normalize()
-            val file = File(path.toString())
-            require(file.exists() && (!file.isHidden)) {
-                "Please use a correct path. It was: $path"
-            }
-            val currentTopLevel = if (file.isDirectory) file else file.parentFile
-            if (topLevel == null) topLevel = currentTopLevel
-            require(topLevel.toString() == currentTopLevel.toString()) {
-                "All files should have the same top level path."
-            }
-            filePaths[index] = file
-        }
 
         val translationConfiguration =
             TranslationConfiguration.builder()
-                .sourceLocations(*filePaths)
                 .topLevel(topLevel)
                 .defaultLanguages()
                 .loadIncludes(loadIncludes)
                 .debugParser(DEBUG_PARSER)
+
+        if (mutuallyExclusiveParameters.softwareComponents.isNotEmpty()) {
+            val components = mutableMapOf<String, List<File>>()
+            for (sc in mutuallyExclusiveParameters.softwareComponents) {
+                components[sc.key] = getFilesOfList(sc.value.split(","))
+            }
+            translationConfiguration.softwareComponents(components)
+        } else {
+            val filePaths = getFilesOfList(mutuallyExclusiveParameters.files)
+            translationConfiguration.sourceLocations(filePaths)
+        }
 
         if (!noDefaultPasses) {
             translationConfiguration.defaultPasses()
@@ -368,16 +397,9 @@ class Application : Callable<Int> {
     }
 
     /**
-     * A generic pair.
-     *
-     * @author Andreas Hager, andreas.hager@aisec.fraunhofer.de
-     */
-    class Pair<T, U>(val first: T, val second: U)
-
-    /**
      * The entrypoint of the cpg-vis-neo4j.
      *
-     * @throws IllegalArgumentException, if there was no arguments provided, or the path does not
+     * @throws IllegalArgumentException, if there were no arguments provided, or the path does not
      * point to a file, is a directory or point to a hidden file or the paths does not have the same
      * top level path
      * @throws InterruptedException, if the thread is interrupted while it try´s to connect to the
@@ -405,8 +427,15 @@ class Application : Callable<Int> {
         val pushTime = System.currentTimeMillis()
         log.info("Benchmark: push code in " + (pushTime - analyzingTime) / S_TO_MS_FACTOR + " s.")
 
+        val benchmarkResult = translationResult.benchmarkResults
+
         if (printBenchmark) {
-            translationResult.printBenchmark()
+            benchmarkResult.print()
+        }
+
+        benchmarkJson?.let { theFile ->
+            log.info("Save benchmark results to file: $theFile")
+            theFile.writeText(benchmarkResult.json)
         }
 
         return EXIT_SUCCESS

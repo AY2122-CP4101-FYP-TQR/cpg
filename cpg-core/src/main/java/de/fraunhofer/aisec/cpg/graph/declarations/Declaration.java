@@ -39,4 +39,4 @@ import de.fraunhofer.aisec.cpg.graph.Node;
  */
 // TODO: expressionRefersToDeclaration definition and declaration nodes and introduce a field if its
 // declaration only
-public class Declaration extends Node {}
+public abstract class Declaration extends Node {}

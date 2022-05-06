@@ -25,13 +25,32 @@
  */
 package de.fraunhofer.aisec.cpg.helpers
 
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import de.fraunhofer.aisec.cpg.TranslationConfiguration
+import java.io.File
 import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
 import java.util.*
 import kotlin.IllegalArgumentException
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+
+class BenchmarkResults(val entries: List<List<Any>>) {
+
+    val json: String
+        get() {
+            val mapper = jacksonObjectMapper()
+
+            return mapper.writeValueAsString(entries.associate { it[0] to it[1] })
+        }
+
+    /** Pretty-prints benchmark results for easy copying to GitHub issues. */
+    fun print() {
+        println("# Benchmark run ${UUID.randomUUID()}")
+        printMarkdown(entries, listOf("Metric", "Value"))
+    }
+}
 
 /** Interface definition to hold different statistics about the translation process. */
 interface StatisticsHolder {
@@ -41,33 +60,24 @@ interface StatisticsHolder {
 
     fun addBenchmark(b: Benchmark)
 
-    /** Pretty-prints benchmark results for easy copying to GitHub issues. */
-    fun printBenchmark() {
-        println("# Benchmark run ${UUID.randomUUID()}")
-        printMarkdown(
-            listOf(
+    val benchmarkResults: BenchmarkResults
+        get() {
+            return BenchmarkResults(
                 listOf(
-                    "Translation config",
-                    "`${config.toString().replace(",", ", ").replace(":", ": ")}`"
-                ),
-                listOf("Number of files translated", translatedFiles.size),
-                listOf(
-                    "Translated file(s)",
-                    translatedFiles.map {
-                        relativeOrAbsolute(Path.of(it), config.topLevel.toPath())
-                    }
-                ),
-                *benchmarks
-                    .map { listOf("${it.caller}: ${it.message}", "${it.duration} ms") }
-                    .toTypedArray(),
-            ),
-            listOf("Metric", "Value")
-        )
-    }
+                    listOf("Translation config", config),
+                    listOf("Number of files translated", translatedFiles.size),
+                    listOf(
+                        "Translated file(s)",
+                        translatedFiles.map { relativeOrAbsolute(Path.of(it), config.topLevel) }
+                    ),
+                    *benchmarks.map { it.benchmarkedValues }.toTypedArray()
+                )
+            )
+        }
 }
 
 /**
- * Prints a table of values and headers in markdown format. Table columns are automatically adjusted
+ * Prints a table of values and headers in Markdown format. Table columns are automatically adjusted
  * to the longest column.
  */
 fun printMarkdown(table: List<List<Any>>, headers: List<String>) {
@@ -94,6 +104,7 @@ fun printMarkdown(table: List<List<Any>>, headers: List<String>) {
 
     for (row in table) {
         var rowIndex = 0
+        // TODO: Add pretty printing for objects (e.g. List, Map)
         val line = row.joinToString(" | ", "| ", " |") { it.toString().padEnd(lengths[rowIndex++]) }
         println(line)
     }
@@ -105,39 +116,34 @@ fun printMarkdown(table: List<List<Any>>, headers: List<String>) {
  * This function will shorten / relativize the [path], if it is relative to [topLevel]. Otherwise,
  * the full path will be returned.
  */
-fun relativeOrAbsolute(path: Path, topLevel: Path): Path {
-    return try {
-        topLevel.toAbsolutePath().relativize(path)
-    } catch (ex: IllegalArgumentException) {
+fun relativeOrAbsolute(path: Path, topLevel: File?): Path {
+    return if (topLevel != null) {
+        try {
+            topLevel.toPath().toAbsolutePath().relativize(path)
+        } catch (ex: IllegalArgumentException) {
+            path
+        }
+    } else {
         path
     }
 }
 
-open class Benchmark
-@JvmOverloads
-constructor(
+/** Measures the time between creating the object to calling its stop() method. */
+open class TimeBenchmark(
     c: Class<*>,
-    val message: String,
-    private var debug: Boolean = false,
-    private var holder: StatisticsHolder? = null
-) {
+    message: String,
+    debug: Boolean = false,
+    holder: StatisticsHolder? = null
+) : Benchmark(c, message, debug, holder) {
 
-    val caller: String
     private val start: Instant
 
-    var duration: Long
-        private set
+    /** Stops the time and computes the difference between */
+    override fun addMeasurement(measurementKey: String?, measurementValue: String?): Any? {
+        val duration = Duration.between(start, Instant.now()).toMillis()
+        measurements["${caller}: $message"] = "$duration ms"
 
-    fun stop(): Long {
-        duration = Duration.between(start, Instant.now()).toMillis()
-
-        val msg = "$caller: $message done in $duration ms"
-
-        if (debug) {
-            log.debug(msg)
-        } else {
-            log.info(msg)
-        }
+        logDebugMsg("$caller: $message done in $duration ms")
 
         // update our holder, if we have any
         holder?.addBenchmark(this)
@@ -146,20 +152,72 @@ constructor(
     }
 
     companion object {
-        private val log = LoggerFactory.getLogger(Benchmark::class.java)
+        val log: Logger = LoggerFactory.getLogger(Benchmark::class.java)
     }
 
     init {
-        this.duration = -1
-        caller = c.simpleName
+        measurements["${caller}: $message"] = "No value available yet."
         start = Instant.now()
+    }
+}
 
-        val msg = "$caller: $message"
+/** Represents some kind of measurements, e.g., on the performance or problems. */
+open class Benchmark
+@JvmOverloads
+constructor(
+    /** The class which called this benchmark. */
+    c: Class<*>,
+    /** A string indicating what this benchmark should measure. */
+    val message: String,
+    /** Changes the level used for log output. */
+    protected var debug: Boolean = false,
+    /** The class which should be updated if the value measured by this benchmark changed. */
+    protected var holder: StatisticsHolder? = null
+) {
 
+    val caller: String
+
+    /** Stores the values measured by the benchmark */
+    var measurements: MutableMap<String, String> = mutableMapOf()
+
+    /**
+     * Returns a list of strings which summarize the insights gained by the benchmark. The first
+     * item of the list is the key, the second one is the value.
+     */
+    val benchmarkedValues: List<String>
+        get() {
+            return measurements.flatMap { listOf(it.key, it.value) }
+        }
+
+    fun logDebugMsg(msg: String) {
         if (debug) {
             log.debug(msg)
         } else {
             log.info(msg)
         }
+    }
+
+    /** Adds a measurement for the respective benchmark and saves it to the map. */
+    open fun addMeasurement(
+        measurementKey: String? = null,
+        measurementValue: String? = null
+    ): Any? {
+        if (measurementKey == null || measurementValue == null) return null
+
+        measurements["Measured $measurementKey"] = measurementValue
+        logDebugMsg("$caller $measurementKey: result is $measurementValue")
+
+        // update our holder, if we have any
+        holder?.addBenchmark(this)
+        return null
+    }
+
+    companion object {
+        val log: Logger = LoggerFactory.getLogger(Benchmark::class.java)
+    }
+
+    init {
+        caller = c.simpleName
+        logDebugMsg("$caller: $message")
     }
 }

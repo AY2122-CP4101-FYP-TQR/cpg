@@ -24,6 +24,8 @@ The features implemented are able to handle most simple cases and may have diffi
 - [x] Simple Pipeline 
 - [x] Simple MemberCall Invocation 
   - E.g. "a".Invoke()
+- [x] Try and Catch 
+- [x] Break and Continue
 
 ### ToDo  
 - [ ] Improve Pipeline
