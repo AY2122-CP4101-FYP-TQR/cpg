@@ -150,6 +150,44 @@ function printAst($id, $Indent = 0)
       $output += "], `"body`": `"{0}`" }}" -f ($value)  #Can be extended to add other Blocks
     }
 
+    if ($_.GetType().Name -like "TryStatementAst") {
+      $output += ", `"tryStmt`": { "
+      $counter = 0
+      $ref = 0
+      if ($null -ne $_.Body) {
+        $toAdd = stripIllegalText($_.Body)
+        $output += "`"try`": `"{0}`"" -f $toAdd
+        $counter++
+      }
+      if ($counter -ne $ref) {
+        $output += ", "
+        $counter = $ref
+      }
+      if ($null -ne $_.CatchClauses) {
+        $output += "`"catch`": ["
+        $catchCounter = 0
+        foreach ($clause in $_.CatchClauses) {
+          if ($catchCounter -ne 0 -and $catchCounter -lt $_.CatchClauses.Count) {
+            $output += ","
+          }
+          $toAdd = stripIllegalText($clause)
+          $output += "`"{0}`"" -f $toAdd
+          $catchCounter++
+        }
+        $counter++
+      }
+      $output += "]"
+      if ($counter -ne $ref) {
+        $output += ", "
+        $counter = $ref
+      }
+      if ($null -ne $_.Finally) {
+        $toAdd = stripIllegalText($_.Finally)
+        $output += "`"finally`": `"{0}`"" -f $toAdd
+      }
+      $output += "}"
+    }
+
     $output += ", `"location`": {{`"file`": `"{0}`", `"startLine`": `"{1}`", `"endLine`": `"{2}`", `"startCol`": `"{3}`", `"endCol`": `"{4}`" }}" -f $program, $_.Extent.StartLineNumber, $_.Extent.EndLineNumber, $_.Extent.StartColumnNumber, $_.Extent.EndColumnNumber
     #can add more if required
     #"{0} Type:{1} Code:{2} Children:{3} `n" -f $space, $_.getType().Name, $_.Extent.Text, $childCounter

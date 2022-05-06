@@ -464,4 +464,41 @@ class PowerShellFrontendTest : BaseTest() {
             ((switch.statement as CompoundStatement).statements[3 * 2 + 1] as Literal<*>).value
         )
     }
+
+    @Test
+    fun testTryCatch() {
+        val topLevel = Path.of("src", "test", "resources", "powershell")
+        val tu =
+            TestUtils.analyzeAndGetFirstTU(
+                listOf(topLevel.resolve("try.ps1").toFile()),
+                topLevel,
+                true
+            ) {
+                it.registerLanguage(
+                    PowerShellLanguageFrontend::class.java,
+                    PowerShellLanguageFrontend.POWERSHELL_EXTENSIONS
+                )
+            }
+
+        assertNotNull(tu)
+
+        val p = tu.getDeclarationsByName("try", NamespaceDeclaration::class.java).iterator().next()
+        assertNotNull(p)
+        val `try` = (p.statements[0] as TryStatement).tryBlock as CompoundStatement
+        assertNotNull(`try`)
+        assertEquals("1/0", `try`.statements[0].code)
+        assertEquals("Write-Host", (`try`.statements[1] as CallExpression).invokes[0].name)
+
+        val catch = (p.statements[0] as TryStatement).catchClauses
+        assertNotNull(catch)
+        val catch1 = (catch[0].parameter as VariableDeclaration)
+        assertEquals("[System.Management.Automation.RuntimeException] ", catch1.name)
+        val catch2 = (catch[1].parameter)
+        assertNotNull(catch2)
+        assertEquals("", catch2.name)
+
+        val final = (p.statements[0] as TryStatement).finallyBlock as CompoundStatement
+        assertNotNull(final)
+        assertEquals("Write-Host", (final.statements[0] as CallExpression).invokes[0].name)
+    }
 }

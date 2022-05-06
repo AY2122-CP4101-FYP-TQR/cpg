@@ -203,6 +203,8 @@ class loop(var init: String?, var condition: String?, var body: String?, var ite
 
 class ifStmt(var num: Int?, var condition: List<String>?, var body: List<String>?)
 
+class tryStmt(var `try`: String?, var catch: List<String>?, var finally: String?)
+
 class Function(var param: List<String>, var type: List<String>, var body: String)
 
 class PowerShellNode(
@@ -218,7 +220,8 @@ class PowerShellNode(
     var unaryType: String?,
     var loop: loop?,
     var function: Function?,
-    var ifStmt: ifStmt?
+    var ifStmt: ifStmt?,
+    var tryStmt: tryStmt?
 ) {
     fun firstChild(type: String): PowerShellNode? {
         return this.children?.firstOrNull { it.type == type }

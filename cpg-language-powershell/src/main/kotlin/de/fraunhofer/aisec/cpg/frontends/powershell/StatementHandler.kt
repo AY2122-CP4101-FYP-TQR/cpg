@@ -341,9 +341,6 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
         val switchStmt = NodeBuilder.newSwitchStatement(node.code)
         this.lang.scopeManager.enterScope(switchStmt)
 
-        // switchStmt.initializerStatement
-        // switchStmt.selectorDeclaration
-
         if (node.children != null &&
                 node.children!!.isNotEmpty() &&
                 node.children!![0].type == "PipelineAst"
@@ -375,25 +372,42 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
     }
 
     private fun handleTryStmt(node: PowerShellNode): Statement {
+        val tryAst = node.tryStmt!!
+        val stmtNode = tryAst.`try`?.let { this.lang.getFirstChildNodeNamedViaCode(it, node) }
+        val catchAst = tryAst.catch
+        val finalNode = tryAst.finally?.let { this.lang.getFirstChildNodeNamedViaCode(it, node) }
+
         val tryStatement = NodeBuilder.newTryStatement(node.code)
         lang.scopeManager.enterScope(tryStatement)
-        val statement = handle(node.children!![0]) as CompoundStatement?
-        val catchClauses = emptyList<CatchClause>().toMutableList()
-        var finalStatement: CompoundStatement? = null
-
-        val children = node.children!!.subList(1, (node.children!!.size))
-        for (child in children) {
-            if (child.type != "CatchClauseAst") {
-                finalStatement = handle(child) as CompoundStatement
-                break
-            }
-            val catchClause = this.handleCatchClause(child)
-            catchClauses.add(catchClause)
+        // Try
+        if (stmtNode != null) {
+            val statement = handle(stmtNode) as CompoundStatement?
+            tryStatement.tryBlock = statement
         }
 
-        tryStatement.tryBlock = statement
+        // Catch
+        val catchClauses = emptyList<CatchClause>().toMutableList()
+        if (catchAst != null) {
+            for (catch in catchAst) {
+                val catchNode = this.lang.getFirstChildNodeNamedViaCode(catch, node)
+                val catchClause = catchNode?.let { this.handleCatchClause(it) }
+                if (catchClause != null) {
+                    catchClauses.add(catchClause)
+                }
+            }
+        }
         tryStatement.catchClauses = catchClauses
-        if (finalStatement != null) {
+
+        // Finally
+        var finalStatement: CompoundStatement? = null
+        if (finalNode != null) {
+            val finallyStmt = handle(finalNode)
+            if (finallyStmt is CompoundStatement) {
+                finalStatement = finallyStmt
+            } else {
+                finalStatement = NodeBuilder.newCompoundStatement(finalNode.code)
+                finalStatement.addStatement(finallyStmt)
+            }
             tryStatement.finallyBlock = finalStatement
         }
         lang.scopeManager.leaveScope(tryStatement)
@@ -404,6 +418,8 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
         val catchClause = NodeBuilder.newCatchClause(node.code)
         lang.scopeManager.enterScope(catchClause)
 
+        // Just to link the code together as there is currently no way to link the
+        // Error type at the moment.
         val children = node.children!!.subList(0, (node.children!!.size - 1))
         var code = ""
         for (child in children) {
