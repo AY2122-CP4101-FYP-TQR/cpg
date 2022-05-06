@@ -423,4 +423,45 @@ class PowerShellFrontendTest : BaseTest() {
                 VariableDeclaration
         )
     }
+
+    @Test
+    fun testSwitch() {
+        val topLevel = Path.of("src", "test", "resources", "powershell")
+        val tu =
+            TestUtils.analyzeAndGetFirstTU(
+                listOf(topLevel.resolve("switch.ps1").toFile()),
+                topLevel,
+                true
+            ) {
+                it.registerLanguage(
+                    PowerShellLanguageFrontend::class.java,
+                    PowerShellLanguageFrontend.POWERSHELL_EXTENSIONS
+                )
+            }
+
+        assertNotNull(tu)
+
+        val p =
+            tu.getDeclarationsByName("switch", NamespaceDeclaration::class.java).iterator().next()
+        assertNotNull(p)
+        val day = p.declarations[0] as VariableDeclaration
+        val switch = p.statements[1] as SwitchStatement
+        assertNotNull(switch)
+        assertEquals(
+            day,
+            (switch.selector as DeclaredReferenceExpression).refersTo as VariableDeclaration
+        )
+        assertEquals(7 * 2, (switch.statement as CompoundStatement).statements.size)
+        assertEquals(
+            "'Wednesday'",
+            (((switch.statement as CompoundStatement).statements[3 * 2] as CaseStatement)
+                    .caseExpression as
+                    Literal<*>)
+                .value
+        )
+        assertEquals(
+            "3",
+            ((switch.statement as CompoundStatement).statements[3 * 2 + 1] as Literal<*>).value
+        )
+    }
 }

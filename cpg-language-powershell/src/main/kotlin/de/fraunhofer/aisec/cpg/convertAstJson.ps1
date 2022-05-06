@@ -42,13 +42,13 @@ function printAst($id, $Indent = 0)
     }
 
     if ($_.GetType().Name -like "IfStatementAst") {
-      $limit = $_.Clauses.Count + 1
+      $limit = $_.Clauses.Count + $_.ElseClause.Count - 1
       $count = 0
       $output += ", `"ifStmt`": {{ `"num`": `"{0}`" " -f ($limit)
 
       $cond = @()
       $body = @()
-      while ($count -lt $limit-1) {
+      while ($count -lt $limit) {
         $cond += stripIllegalText($_.Clauses[$count].Item1.Extent.Text)
         $body += stripIllegalText($_.Clauses[$count].Item2.Extent.Text)
         $count += 1

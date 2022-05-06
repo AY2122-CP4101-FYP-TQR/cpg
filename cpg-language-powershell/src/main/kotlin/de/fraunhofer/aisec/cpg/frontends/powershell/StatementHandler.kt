@@ -158,7 +158,7 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
      * priority) since it does not make sense, at least in code sense, to do that.
      */
     private fun handleIfStmt(node: PowerShellNode, counter: Int = 0): Statement? {
-        val numOfChildren = node.ifStmt!!.num!! - 1
+        val numOfChildren = node.ifStmt!!.num!!
         if (counter >= numOfChildren) {
             return if (counter == numOfChildren) {
                 val last =
