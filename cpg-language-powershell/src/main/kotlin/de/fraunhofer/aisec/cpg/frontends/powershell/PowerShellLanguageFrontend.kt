@@ -137,6 +137,24 @@ class PowerShellLanguageFrontend(
         return null
     }
 
+    fun getFirstChildNodeWithType(targetName: String, node: PowerShellNode): PowerShellNode? {
+        if (node.type == targetName) return node
+
+        if (node.children != null) {
+            for (child in node.children!!) {
+                if (child.type == targetName) {
+                    return child
+                } else {
+                    val ret = getFirstChildNodeWithType(targetName, child)
+                    if (ret != null) {
+                        if (ret.type == targetName) return ret
+                    }
+                }
+            }
+        }
+        return null
+    }
+
     fun convertPSCodeType(type: String): String {
         if (type.lowercase().contains("int")) {
             return "int"
@@ -146,19 +164,6 @@ class PowerShellLanguageFrontend(
             return "float"
         }
         return ""
-    }
-    fun getAllLastChildren(
-        node: PowerShellNode,
-        list: MutableList<PowerShellNode>
-    ): List<PowerShellNode> {
-        if (node.children == null) {
-            list.add(node)
-        } else {
-            for (child in node.children!!) {
-                getAllLastChildren(child, list)
-            }
-        }
-        return list.toList()
     }
 
     override fun <T : Any?> getCodeFromRawNode(astNode: T): String? {
@@ -207,6 +212,8 @@ class tryStmt(var `try`: String?, var catch: List<String>?, var finally: String?
 
 class Function(var param: List<String>, var type: List<String>, var body: String)
 
+class array(var elem: List<String>)
+
 class PowerShellNode(
     var type: String,
     var name: String?,
@@ -221,7 +228,8 @@ class PowerShellNode(
     var loop: loop?,
     var function: Function?,
     var ifStmt: ifStmt?,
-    var tryStmt: tryStmt?
+    var tryStmt: tryStmt?,
+    var array: array?
 ) {
     fun firstChild(type: String): PowerShellNode? {
         return this.children?.firstOrNull { it.type == type }

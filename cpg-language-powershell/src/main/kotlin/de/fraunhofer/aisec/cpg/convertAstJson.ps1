@@ -188,6 +188,20 @@ function printAst($id, $Indent = 0)
       $output += "}"
     }
 
+    if ($_.GetType().Name -like "ArrayLiteralAst") {
+      $output += ", `"array`": { `"elem`": ["
+      $counter = 0
+      foreach ($arr in $_.Elements) {
+        if ($counter -ne 0) {
+          $output += ", "
+        }
+        $toAdd = stripIllegalText($arr).child.Extent.Text
+        $output += "`"{0}`"" -f $toAdd
+        $counter += 1
+      }
+      $output += "]}"
+    }
+
     $output += ", `"location`": {{`"file`": `"{0}`", `"startLine`": `"{1}`", `"endLine`": `"{2}`", `"startCol`": `"{3}`", `"endCol`": `"{4}`" }}" -f $program, $_.Extent.StartLineNumber, $_.Extent.EndLineNumber, $_.Extent.StartColumnNumber, $_.Extent.EndColumnNumber
     #can add more if required
     #"{0} Type:{1} Code:{2} Children:{3} `n" -f $space, $_.getType().Name, $_.Extent.Text, $childCounter

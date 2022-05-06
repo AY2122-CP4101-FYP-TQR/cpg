@@ -43,7 +43,6 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
     private fun handleNode(node: PowerShellNode): Statement? {
         println("STATEMENT:  ${node.type}")
         when (node.type) {
-            // Handle all statements
             "NamedBlockAst" -> return handleGenericBlock(node)
             "PipelineAst" -> return handlePipelineStmt(node)
             "AssignmentStatementAst" -> return handleAssignmentStmt(node)

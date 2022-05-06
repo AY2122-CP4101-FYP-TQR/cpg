@@ -107,7 +107,7 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
         return compoundExprStmt
     }
 
-    // First of a pipeline can be expression.
+    // First child of a pipeline can be expression.
     // The rest cannot.
     private fun handlePipelineExpression(node: PowerShellNode): Expression {
         return if (node.children!!.size == 1) {
@@ -222,11 +222,12 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
         val expr = NodeBuilder.newInitializerListExpression(node.code)
         expr.type = node.codeType?.let { TypeParser.createFrom(it, false) }
 
-        val retList: MutableList<PowerShellNode> = emptyList<PowerShellNode>().toMutableList()
-        val items = this.lang.getAllLastChildren(node, retList)
+        val arrayLit = this.lang.getFirstChildNodeWithType("ArrayLiteralAst", node)
+        val arr = arrayLit?.array!!
         val list: MutableList<Expression> = emptyList<Expression>().toMutableList()
-        for (item in items) {
-            list.add(this.handle(item))
+        for (item in arr.elem) {
+            val elem = this.lang.getFirstChildNodeNamedViaCode(item, node)
+            list.add(this.handle(elem))
         }
         expr.initializers = list
         return expr
