@@ -3,6 +3,8 @@ Extension of Fraunhofer-AISEC/cpg supported language to include PowerShell scrip
 The AST of the PS script is obtained via `convertAstJson.ps1` file and passed as JSON object
 to the cpg library to handle.  
 
+**NOTE:**  
+To produce the CPG on Neo4j, it must be executed while being in `cpg-language-powershell` directory.
 
 ### Completed
 The features implemented are able to handle most simple cases and may have difficulty with more complex constructs.
@@ -15,17 +17,20 @@ The features implemented are able to handle most simple cases and may have diffi
 - [x] DoUntil
   - Same as DoWhile but with inverted conditions
 - [x] Switch
-- [x] ScriptBlock
-- [x] Pipeline (Limited functionality)
-- [x] MemberCall Invocation 
+- [x] Try and Catch
+- [x] Break and Continue
+
+- [x] Simple ScriptBlock
+- [x] Simple Pipeline 
+- [x] Simple MemberCall Invocation 
   - E.g. "a".Invoke()
 
-### ToDo
+### ToDo  
 - [ ] Improve Pipeline
   - Linking one pipe's output to another's input.
   - Able more complex pipelines
-- [ ] Try and Catch 
-- [ ] Break and Continue
+- [ ] Improve ScriptBlock
+- [ ] Improve MemberCall Invocation
 
 ### Areas identified that are not Implemented
 This list contains features identified that are not implemented due to resource constraints like time.
