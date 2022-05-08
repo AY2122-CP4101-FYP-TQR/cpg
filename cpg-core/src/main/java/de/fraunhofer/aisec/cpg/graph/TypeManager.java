@@ -28,7 +28,6 @@ package de.fraunhofer.aisec.cpg.graph;
 import de.fraunhofer.aisec.cpg.frontends.LanguageFrontend;
 import de.fraunhofer.aisec.cpg.frontends.cpp.CXXLanguageFrontend;
 import de.fraunhofer.aisec.cpg.frontends.java.JavaLanguageFrontend;
-import de.fraunhofer.aisec.cpg.frontends.powershell.PowerShellLanguageFrontend;
 import de.fraunhofer.aisec.cpg.frontends.typescript.TypeScriptLanguageFrontend;
 import de.fraunhofer.aisec.cpg.graph.declarations.RecordDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.TemplateDeclaration;
@@ -577,8 +576,6 @@ public class TypeManager {
       return Language.PYTHON;
     } else if (frontend instanceof TypeScriptLanguageFrontend) {
       return Language.TYPESCRIPT;
-    } else if (frontend instanceof PowerShellLanguageFrontend) {
-      return Language.POWERSHELL;
     } else if (frontend != null
         && llvmClass != null
         && llvmClass.isAssignableFrom(frontend.getClass())) {

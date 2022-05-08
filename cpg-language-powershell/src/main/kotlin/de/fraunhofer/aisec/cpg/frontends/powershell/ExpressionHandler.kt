@@ -107,7 +107,7 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
         return compoundExprStmt
     }
 
-    // First of a pipeline can be expression.
+    // First child of a pipeline can be expression.
     // The rest cannot.
     private fun handlePipelineExpression(node: PowerShellNode): Expression {
         return if (node.children!!.size == 1) {
@@ -142,20 +142,17 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
     }
 
     private fun handleLiteralExpression(node: PowerShellNode): Expression {
-        val typeStr =
-            when (node.type) {
-                "ConstantExpressionAst" -> "int"
-                "StringConstantExpressionAst" -> "str"
-                // should not fall into this? if it does, add them
-                else -> "unknown"
+        var typeStr = node.codeType?.let { this.lang.convertPSCodeType(it) }
+        if (typeStr == null) typeStr = ""
+        val tpe =
+            if (typeStr != "") {
+                TypeParser.createFrom(typeStr, false)
+            } else {
+                UnknownType.getUnknownType()
             }
-        if (typeStr == "unknown")
-            log.warn("Unidentified type found for literal: type is actually ${node.type}")
-
-        val type = TypeParser.createFrom(typeStr, false)
         val value = node.code
 
-        val lit = NodeBuilder.newLiteral(value, type, node.code)
+        val lit = NodeBuilder.newLiteral(value, tpe, node.code)
         lit.name = node.code ?: node.name ?: ""
         lit.location = this.lang.getLocationFromRawNode(node)
         return lit
@@ -225,11 +222,12 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
         val expr = NodeBuilder.newInitializerListExpression(node.code)
         expr.type = node.codeType?.let { TypeParser.createFrom(it, false) }
 
-        val retList: MutableList<PowerShellNode> = emptyList<PowerShellNode>().toMutableList()
-        val items = this.lang.getAllLastChildren(node, retList)
+        val arrayLit = this.lang.getFirstChildNodeWithType("ArrayLiteralAst", node)
+        val arr = arrayLit?.array!!
         val list: MutableList<Expression> = emptyList<Expression>().toMutableList()
-        for (item in items) {
-            list.add(this.handle(item))
+        for (item in arr.elem) {
+            val elem = this.lang.getFirstChildNodeNamedViaCode(item, node)
+            list.add(this.handle(elem))
         }
         expr.initializers = list
         return expr
@@ -250,7 +248,7 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
     private fun handleCommand(node: PowerShellNode): Expression {
         // First child is always the function call itself
         val functionCallAst = node.children!![0]
-        if (functionCallAst.type != "StringConstantExpressionAst") {
+        if (functionCallAst.type != "StringConstantExpressionAst") { // Error checking JIC
             log.error("First child in handleCommand not the function called")
         }
         val functionCall =
@@ -264,9 +262,8 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
         val functionDefList =
             this.lang.scopeManager.resolveFunctionStopScopeTraversalOnDefinition(functionCall)
         // Does not mean much as it could simply be the case of multiple class with same function
-        // declaration
-        // and since the ^ function searches ALL parent scope for that definition, many instances
-        // can be returned.
+        // declaration and since the ^ function searches ALL parent scope for that definition, many
+        // instances can be returned.
         // Nonetheless, the FIRST occurrence should be the correct definition. Warning logged just
         // in case.
         if (functionDefList.size > 1)
@@ -296,9 +293,10 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
                 paramsMap[parameter.name] = parameter.argumentIndex
             }
         }
-        // can have mixed so need to handle them together
-
         val doneList = emptyList<Int>().toMutableList()
+        val paramMarked = emptyList<Int>().toMutableList()
+        val params = emptyList<Expression>().toMutableList()
+
         for ((index, param) in paramsList.withIndex()) {
             if (index in doneList) continue
             if (param.type == "CommandParameterAst") {
@@ -308,27 +306,26 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
                 ) {
                     val paramValue = this.handle(paramsList[index + 1])
                     doneList.add(index + 1)
-                    paramValue.argumentIndex = paramsMap[paramName] ?: ((index + 1) / 2)
+                    paramMarked.add(paramsMap[paramName]!!)
+                    paramValue.argumentIndex = paramsMap[paramName]!!
                     paramValue.code = param.code + " " + paramValue.code
-                    functionCall.addArgument(paramValue)
+                    params.add(paramValue)
                 }
-            } else if (param.type == "ScriptBlockExpressionAst") {
-                log.warn("HI")
-                functionCall.addArgument(this.lang.expressionHandler.handle(param))
             } else {
-                // The middle AST structures do not contain information that are essential
-                // Plus they can intertwine between ArrayLiteralAst and ParenExpressionAst,
-                // making it extremely complex to handle.
-                // We are only interested in the last nodes (those without children)
-                val retList: MutableList<PowerShellNode> =
-                    emptyList<PowerShellNode>().toMutableList()
-                val params = this.lang.getAllLastChildren(param, retList)
-                for ((id, p) in params.withIndex()) {
-                    val paramValue = this.handle(p)
-                    paramValue.argumentIndex = id
-                    functionCall.addArgument(paramValue)
-                }
+                doneList.add(index)
+                val paramValue = this.handle(param)
+                paramValue.argumentIndex = -1
+                params.add(paramValue)
             }
+        }
+        var counter = 0
+        for (param in params) {
+            while (counter in paramMarked) counter += 1
+            if (param.argumentIndex == -1) {
+                param.argumentIndex = counter
+                paramMarked.add(counter)
+            }
+            functionCall.addArgument(param)
         }
     }
 

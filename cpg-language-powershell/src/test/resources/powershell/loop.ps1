@@ -19,3 +19,9 @@ do {
     $a = 5
     $i++
 } until($i -gt 5)
+
+$arr = @(50, 20, 42)
+foreach($a in $arr) {
+    Write-Host $a
+    $b = $a + 2
+}

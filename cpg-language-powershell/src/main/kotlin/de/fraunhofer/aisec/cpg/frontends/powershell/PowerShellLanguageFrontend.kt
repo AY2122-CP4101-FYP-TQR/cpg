@@ -29,13 +29,15 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import de.fraunhofer.aisec.cpg.ExperimentalPowerShell
 import de.fraunhofer.aisec.cpg.TranslationConfiguration
 import de.fraunhofer.aisec.cpg.frontends.LanguageFrontend
+import de.fraunhofer.aisec.cpg.frontends.TranslationException
 import de.fraunhofer.aisec.cpg.graph.TypeManager
 import de.fraunhofer.aisec.cpg.graph.declarations.TranslationUnitDeclaration
 import de.fraunhofer.aisec.cpg.passes.scopes.ScopeManager
 import de.fraunhofer.aisec.cpg.sarif.PhysicalLocation
 import de.fraunhofer.aisec.cpg.sarif.Region
 import java.io.File
-import kotlin.system.exitProcess
+import java.nio.file.Path
+import kotlin.io.path.absolutePathString
 import org.checkerframework.checker.nullness.qual.NonNull
 
 @ExperimentalPowerShell
@@ -57,44 +59,58 @@ class PowerShellLanguageFrontend(
         @kotlin.jvm.JvmField var POWERSHELL_EXTENSIONS: List<String> = listOf(".ps1")
     }
 
+    @Throws(TranslationException::class)
     override fun parse(file: File): TranslationUnitDeclaration {
-        // Check if the parser file can be found
-        // val fileStr = "/home/bob/Desktop/mycpg/test/ast.ps1"
-        // val file = File(fileStr)
-        if (!file.exists()) {
-            println("file not founddddd")
-            exitProcess(0)
-        }
-        val parserFileStr =
-            "/home/bob/Desktop/fyp/cpg/cpg-core/src/main/powershell/convertAstJson.ps1"
-        val parserFile = File(parserFileStr)
-        if (!file.exists()) {
-            println("parserFile not found")
-            exitProcess(0)
+        TypeManager.getInstance().setLanguageFrontend(this)
+        return parseInternal(file, file.path)
+    }
+
+    private fun parseInternal(codeFile: File, path: String): TranslationUnitDeclaration {
+        val modulePath = Path.of("convertAstJson.ps1")
+
+        // TODO fix path to be in src/main/powershell
+        val possibleLocations =
+            listOf(
+                Path.of(".").resolve(modulePath),
+                Path.of("../powershell").resolve(modulePath),
+                Path.of("src/main/powershell").resolve(modulePath),
+                Path.of("src/main/kotlin/de/fraunhofer/aisec/cpg").resolve(modulePath)
+            )
+
+        var entryScript: Path? = null
+        possibleLocations.forEach {
+            if (it.toFile().exists()) {
+                entryScript = it.toAbsolutePath()
+            }
         }
 
-        val p =
-            Runtime.getRuntime().exec(arrayOf("pwsh", parserFile.absolutePath, file.absolutePath))
-        val node = mapper.readValue(p.inputStream, PowerShellNode::class.java)
-        TypeManager.getInstance().setLanguageFrontend(this)
-        // println(node.code)
-        val translationUnit = this.tudHandler.handle(node) as TranslationUnitDeclaration
-        // handleComments(file, translationUnit)
-        return translationUnit
+        val tu: TranslationUnitDeclaration
+        try {
+            println(path)
+            println(entryScript)
+            val p =
+                Runtime.getRuntime()
+                    .exec(entryScript?.let { arrayOf("pwsh", it.absolutePathString(), path) })
+            val node = mapper.readValue(p.inputStream, PowerShellNode::class.java)
+            tu = this.tudHandler.handle(node) as TranslationUnitDeclaration
+        } catch (e: Exception) {
+            throw e
+        }
+        return tu
     }
 
     // DFS type of searching
-    fun getFirstChildNodeNamed(targetType: String, node: PowerShellNode): PowerShellNode? {
-        if (node.type == targetType) return node
+    fun getFirstChildNodeNamedViaCode(targetCode: String, node: PowerShellNode): PowerShellNode? {
+        if (node.code == targetCode) return node
 
         if (node.children != null) {
             for (child in node.children!!) {
-                if (child.type == targetType) {
+                if (child.code == targetCode) {
                     return child
                 } else {
-                    val ret = getFirstChildNodeNamed(targetType, child)
+                    val ret = getFirstChildNodeNamedViaCode(targetCode, child)
                     if (ret != null) {
-                        if (ret.type == targetType) return ret
+                        if (ret.code == targetCode) return ret
                     }
                 }
             }
@@ -102,18 +118,52 @@ class PowerShellLanguageFrontend(
         return null
     }
 
-    fun getAllLastChildren(
-        node: PowerShellNode,
-        list: MutableList<PowerShellNode>
-    ): List<PowerShellNode> {
-        if (node.children == null) {
-            list.add(node)
-        } else {
+    // DFS type of searching
+    fun getFirstChildNodeViaName(targetName: String, node: PowerShellNode): PowerShellNode? {
+        if (node.name == targetName) return node
+
+        if (node.children != null) {
             for (child in node.children!!) {
-                getAllLastChildren(child, list)
+                if (child.name == targetName) {
+                    return child
+                } else {
+                    val ret = getFirstChildNodeViaName(targetName, child)
+                    if (ret != null) {
+                        if (ret.name == targetName) return ret
+                    }
+                }
             }
         }
-        return list.toList()
+        return null
+    }
+
+    fun getFirstChildNodeWithType(targetName: String, node: PowerShellNode): PowerShellNode? {
+        if (node.type == targetName) return node
+
+        if (node.children != null) {
+            for (child in node.children!!) {
+                if (child.type == targetName) {
+                    return child
+                } else {
+                    val ret = getFirstChildNodeWithType(targetName, child)
+                    if (ret != null) {
+                        if (ret.type == targetName) return ret
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    fun convertPSCodeType(type: String): String {
+        if (type.lowercase().contains("int")) {
+            return "int"
+        } else if (type.lowercase().contains("string")) {
+            return "String"
+        } else if (type.lowercase().contains("double")) {
+            return "float"
+        }
+        return ""
     }
 
     override fun <T : Any?> getCodeFromRawNode(astNode: T): String? {
@@ -154,7 +204,15 @@ class Location(
     var endCol: Int
 )
 
-class ForLoop(var init: Boolean, var condition: Boolean, var body: Boolean, var iterator: Boolean)
+class loop(var init: String?, var condition: String?, var body: String?, var iterator: String?)
+
+class ifStmt(var num: Int?, var condition: List<String>?, var body: List<String>?)
+
+class tryStmt(var `try`: String?, var catch: List<String>?, var finally: String?)
+
+class Function(var param: List<String>, var type: List<String>, var body: String)
+
+class array(var elem: List<String>)
 
 class PowerShellNode(
     var type: String,
@@ -167,21 +225,12 @@ class PowerShellNode(
     // other details specific to certain AST
     var operator: String?,
     var unaryType: String?,
-    var forLoop: ForLoop?
+    var loop: loop?,
+    var function: Function?,
+    var ifStmt: ifStmt?,
+    var tryStmt: tryStmt?,
+    var array: array?
 ) {
-    /** Returns the first child node, that represent a type, if it exists. */
-    val typeChildNode: PowerShellNode?
-        get() {
-            return this.children?.firstOrNull {
-                it.type == "TypeReference" ||
-                    it.type == "AnyKeyword" ||
-                    it.type == "StringKeyword" ||
-                    it.type == "NumberKeyword" ||
-                    it.type == "ArrayType" ||
-                    it.type == "TypeLiteral"
-            }
-        }
-
     fun firstChild(type: String): PowerShellNode? {
         return this.children?.firstOrNull { it.type == type }
     }
