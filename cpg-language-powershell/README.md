@@ -1,7 +1,7 @@
 # PowerShell CPG building
 Current System: Ubuntu 20.04 (clean VM)
 
-Recommended specs: At least 30G and 8G ram.
+Recommended specs: At least 30G disk space and 8G ram.
 
 Steps to build and populate CPG into neo4j.
 1. Install Java - `sudo apt install openidk-11-jre-headless` and   
