@@ -314,7 +314,12 @@ class Application : Callable<Int> {
      * point to a file, is a directory or point to a hidden file or the paths does not have the same
      * top level path.
      */
-    @OptIn(ExperimentalPython::class, ExperimentalGolang::class, ExperimentalTypeScript::class)
+    @OptIn(
+        ExperimentalPython::class,
+        ExperimentalGolang::class,
+        ExperimentalTypeScript::class,
+        ExperimentalPowerShell::class
+    )
     private fun setupTranslationConfiguration(): TranslationConfiguration {
 
         val translationConfiguration =

@@ -28,12 +28,13 @@ package de.fraunhofer.aisec.cpg.frontends.powershell
 import de.fraunhofer.aisec.cpg.ExperimentalPowerShell
 import de.fraunhofer.aisec.cpg.frontends.Handler
 import de.fraunhofer.aisec.cpg.graph.NodeBuilder
+import de.fraunhofer.aisec.cpg.graph.declarations.*
 import de.fraunhofer.aisec.cpg.graph.declarations.Declaration
 import de.fraunhofer.aisec.cpg.graph.declarations.TranslationUnitDeclaration
 
 @ExperimentalPowerShell
 class TranslationalUnitDeclarationHandler(lang: PowerShellLanguageFrontend) :
-    Handler<Declaration, PowerShellNode, PowerShellLanguageFrontend>(::Declaration, lang) {
+    Handler<Declaration, PowerShellNode, PowerShellLanguageFrontend>(::ProblemDeclaration, lang) {
     init {
         map.put(PowerShellNode::class.java, ::handleSourceFile)
     }

@@ -32,11 +32,10 @@ import de.fraunhofer.aisec.cpg.graph.declarations.FunctionDeclaration
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.*
 import de.fraunhofer.aisec.cpg.graph.types.TypeParser
 import de.fraunhofer.aisec.cpg.graph.types.UnknownType
-import kotlin.math.exp
 
 @ExperimentalPowerShell
 public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
-    Handler<Expression, PowerShellNode, PowerShellLanguageFrontend>(::Expression, lang) {
+    Handler<Expression, PowerShellNode, PowerShellLanguageFrontend>(::ProblemExpression, lang) {
     init {
         map.put(PowerShellNode::class.java, ::handleNode)
     }
@@ -80,7 +79,7 @@ public class ExpressionHandler(lang: PowerShellLanguageFrontend) :
             "ExpandableStringExpressionAst" -> return handleExpandableStringExpression(node)
         }
         log.warn("EXPRESSION: Not handled situations: ${node.type}")
-        return Expression()
+        return ProblemExpression()
     }
 
     // Current solution is to treat it as compoundStatementExpression
