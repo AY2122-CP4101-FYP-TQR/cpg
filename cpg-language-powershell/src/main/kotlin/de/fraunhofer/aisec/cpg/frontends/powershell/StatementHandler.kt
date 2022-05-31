@@ -29,13 +29,13 @@ import de.fraunhofer.aisec.cpg.ExperimentalPowerShell
 import de.fraunhofer.aisec.cpg.frontends.Handler
 import de.fraunhofer.aisec.cpg.graph.NodeBuilder
 import de.fraunhofer.aisec.cpg.graph.statements.*
-import de.fraunhofer.aisec.cpg.graph.statements.expressions.Expression
+import de.fraunhofer.aisec.cpg.graph.statements.expressions.*
 import de.fraunhofer.aisec.cpg.graph.types.TypeParser
 import de.fraunhofer.aisec.cpg.graph.types.UnknownType
 
 @ExperimentalPowerShell
 class StatementHandler(lang: PowerShellLanguageFrontend) :
-    Handler<Statement, PowerShellNode, PowerShellLanguageFrontend>(::Statement, lang) {
+    Handler<Statement, PowerShellNode, PowerShellLanguageFrontend>(::ProblemExpression, lang) {
     init {
         map.put(PowerShellNode::class.java, ::handleNode)
     }
@@ -61,7 +61,7 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
             "CommandExpressionAst" -> return handleExpressionStmt(node)
         }
         log.warn("STATEMENT: Not handled situations: ${node.type}")
-        return Statement()
+        return ProblemExpression()
     }
 
     private fun handlePipelineStmt(node: PowerShellNode): Statement {
@@ -93,7 +93,7 @@ class StatementHandler(lang: PowerShellLanguageFrontend) :
 
     private fun handleStatementBlock(node: PowerShellNode): Statement {
         if (node.children.isNullOrEmpty()) {
-            return Statement()
+            return ProblemExpression()
         }
         if (node.children!!.size > 1) {
             val compoundStmt = NodeBuilder.newCompoundStatement(node.code)

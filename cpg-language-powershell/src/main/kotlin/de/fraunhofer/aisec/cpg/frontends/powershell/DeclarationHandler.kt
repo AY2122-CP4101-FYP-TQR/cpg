@@ -34,7 +34,7 @@ import de.fraunhofer.aisec.cpg.graph.types.UnknownType
 
 @ExperimentalPowerShell
 class DeclarationHandler(lang: PowerShellLanguageFrontend) :
-    Handler<Declaration, PowerShellNode, PowerShellLanguageFrontend>(::Declaration, lang) {
+    Handler<Declaration, PowerShellNode, PowerShellLanguageFrontend>(::ProblemDeclaration, lang) {
     init {
         map.put(PowerShellNode::class.java, ::handleNode)
     }
@@ -48,7 +48,7 @@ class DeclarationHandler(lang: PowerShellLanguageFrontend) :
             "MemberExpressionAst" -> return handleNestedVariable(node)
             "ConvertExpressionAst" -> return handleNestedVariable(node)
         }
-        return Declaration()
+        return ProblemDeclaration()
     }
 
     /** Handles function declaration and its parameters Currently only supports end-blocks. */
