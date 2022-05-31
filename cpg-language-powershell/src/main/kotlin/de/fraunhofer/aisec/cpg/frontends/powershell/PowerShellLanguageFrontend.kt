@@ -86,8 +86,6 @@ class PowerShellLanguageFrontend(
 
         val tu: TranslationUnitDeclaration
         try {
-            println(path)
-            println(entryScript)
             val p =
                 Runtime.getRuntime()
                     .exec(entryScript?.let { arrayOf("pwsh", it.absolutePathString(), path) })
