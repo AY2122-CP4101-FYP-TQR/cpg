@@ -1,3 +1,19 @@
+# PowerShell CPG building
+Current System: Ubuntu 20.04 (clean VM)
+
+Recommended specs: At least 30G and 8G ram.
+
+Steps to build and populate CPG into neo4j.
+1. Install Java - `sudo apt install openidk-11-jre-headless` and   
+PowerShell -  https://docs.microsoft.com/en-us/powershell/scripting/install/install-ubuntu?view=powershell-7.2
+
+2. Build project in the root directory with `./gradlew installDist`
+
+3. Then after building, `cd cpg-language-powershell`
+
+4. Ensure that neo4j is running. Run `../cpg-neo4j/build/install/cpg-neo4j/bin/cpg-neo4j --enable-experimental-powershell <file> --user=<user> --password=<password>` 
+
+
 # PowerShell for CPG
 Extension of Fraunhofer-AISEC/cpg supported language to include PowerShell scripts.
 The AST of the PS script is obtained via `convertAstJson.ps1` file and passed as JSON object
